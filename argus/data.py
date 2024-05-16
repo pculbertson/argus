@@ -37,9 +37,7 @@ class CameraCubePoseDataset(Dataset):
             dataset_path: The path to the dataset. Must lead to an hdf5 file.
             train: Whether to load the training or test set.
         """
-        assert (
-            dataset_path.suffix == ".hdf5"
-        ), "The dataset must be stored as an hdf5 file!"
+        assert dataset_path.suffix == ".hdf5", "The dataset must be stored as an hdf5 file!"
         with h5py.File(dataset_path, "r") as f:
             if self.train:
                 self.dataset = f["train"]
@@ -52,18 +50,10 @@ class CameraCubePoseDataset(Dataset):
             self.H = f.attrs["H"]
 
             # grabbing the data
-            _cube_poses = torch.from_numpy(
-                self.dataset["cube_poses"][()]
-            )  # original quat order is (w, x, y, z)
-            self.cube_poses = pp.SE3(
-                xyzwxyz_to_xyzxyzw_SE3(_cube_poses)
-            )  # pp expects quat order to be (x, y, z, w)
-            self.images = self.dataset["images"][()][
-                ..., :3
-            ]  # (n_data, n_cams, H, W, 3)
-            self.image_filenames = self.dataset["image_filenames"][
-                ()
-            ]  # list of tuples, (n_data, (n_cams,))
+            _cube_poses = torch.from_numpy(self.dataset["cube_poses"][()])  # original quat order is (w, x, y, z)
+            self.cube_poses = pp.SE3(xyzwxyz_to_xyzxyzw_SE3(_cube_poses))  # pp expects quat order to be (x, y, z, w)
+            self.images = self.dataset["images"][()][..., :3]  # (n_data, n_cams, H, W, 3)
+            self.image_filenames = self.dataset["image_filenames"][()]  # list of tuples, (n_data, (n_cams,))
 
     def __len__(self) -> int:
         """Number of datapoints, i.e., (N image, cube pose) tuples."""
@@ -73,9 +63,7 @@ class CameraCubePoseDataset(Dataset):
         """Returns the idx-th datapoint."""
         # converts image shapes (n_cams, H, W, C) -> (n_cams * 3, H, W)
         # see: github.com/kornia/kornia/blob/3ce96a35bedf505bf416af21e5f01b5861c998df/kornia/utils/image.py#L10
-        images = kornia.utils.image_to_tensor(self.images[idx]).reshape(
-            (-1, self.H, self.W)
-        )
+        images = kornia.utils.image_to_tensor(self.images[idx]).reshape((-1, self.H, self.W))
         return {
             "images": images,
             "cube_pose": self.object_poses[idx],

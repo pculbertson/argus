@@ -20,19 +20,13 @@ class NCameraCNN(nn.Module):
             H: The height of the input images.
         """
         super().__init__()
-        self.resnet = models.resnet18(
-            weights="DEFAULT"
-        )  # finetune a pretrained ResNet-18
-        self.num_channels = (
-            3 * n_cams
-        )  # RGB-only for each cam, all channels concatenated
+        self.resnet = models.resnet18(weights="DEFAULT")  # finetune a pretrained ResNet-18
+        self.num_channels = 3 * n_cams  # RGB-only for each cam, all channels concatenated
         self.H = H
         self.W = W
 
         # adjust the first convolutional layer to match the correct number of input channels
-        self.resnet.conv1 = nn.Conv2d(
-            self.num_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
-        )
+        self.resnet.conv1 = nn.Conv2d(self.num_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
 
         # Replace the average pooling and the final fully connected layer
         self.resnet.avgpool = nn.AdaptiveAvgPool2d((1, 1))
