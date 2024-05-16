@@ -19,8 +19,9 @@ def main():
     model = NCameraCNN(n_cams=N_CAMS, H=H, W=W).to(torch.float32).cuda()
     fwd = torch.compile(model, mode="reduce-overhead")
 
+    # Fixes 'Function definition does not bind loop variable 'x''.
+    # stackoverflow.com/a/54947488
     def make_fn(x):
-        """Fixes 'Function definition does not bind loop variable 'x''."""
 
         def _():
             return fwd(x)
