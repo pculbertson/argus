@@ -1,0 +1,12 @@
+# Blender 4.1.1 MTL File: 'leap_mount.blend'
+# www.blender.org
+
+newmtl black_plastic
+Ns 159.424957
+Ka 1.000000 1.000000 1.000000
+Kd 0.004038 0.004038 0.004038
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.800000
+d 1.000000
+illum 2
