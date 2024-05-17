@@ -7,7 +7,7 @@ from mlagents_envs.base_env import ActionTuple
 
 # Path to the Unity environment executable
 # NOTE: this is a Mac-specific path
-env_path = "/Users/preston/Documents/Leap Project/leap_env.app"
+env_path = "/home/albert/research/argus/LeapProject/leap_env.x86_64"
 
 # Verify the environment path
 import os
