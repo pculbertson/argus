@@ -36,8 +36,9 @@ behavior_specs = env.behavior_specs[behavior_name]
 expected_action_size = behavior_specs.action_spec.continuous_size
 print(f"Expected action size: {expected_action_size}")
 
-# Run a single episode
-for episode in range(2):
+# run some episodes
+n_episodes = 10
+for episode in range(n_episodes):
     env.reset()
     decision_steps, terminal_steps = env.get_steps(behavior_name)
     print(len(decision_steps), len(terminal_steps))
@@ -55,7 +56,22 @@ for episode in range(2):
         print(f"Observations: {obs}")
 
         # Define actions (e.g., random actions)
-        action = np.random.uniform(-1, 1, size=(1, expected_action_size))
+        action = np.random.uniform(-0.1, 0.1, size=(1, expected_action_size))
+
+        # sample a uniformly random quaternion
+        uvw = np.random.uniform(0, 1, size=(3,))
+        u = uvw[0]
+        v = uvw[1]
+        w = uvw[2]
+        quat = np.array(
+            [
+                np.sqrt(1 - u) * np.sin(2 * np.pi * v),
+                np.sqrt(1 - u) * np.cos(2 * np.pi * v),
+                np.sqrt(u) * np.sin(2 * np.pi * w),
+                np.sqrt(u) * np.cos(2 * np.pi * w),
+            ]
+        )
+        action[0][3:7] = quat
 
         # Ensure the actions have the correct shape
         action_tuple = ActionTuple(continuous=action)
