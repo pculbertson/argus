@@ -34,7 +34,13 @@ def dummy_data_path(tmp_path_factory) -> str:
         test = f.create_group("test")
         create_dataset(test, 5)
 
-    return dummy_file
+    return str(dummy_file)
+
+
+@pytest.fixture(scope="session")
+def dummy_save_dir(tmp_path_factory) -> str:
+    """A fixture for the save directory."""
+    return str(tmp_path_factory.mktemp("tmp") / "outputs/models")
 
 
 @pytest.fixture(scope="session")
