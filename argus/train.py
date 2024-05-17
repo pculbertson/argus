@@ -36,7 +36,9 @@ class TrainConfig:
         save_dir: The directory to save the model.
         model_config: The configuration for the model.
         dataset_config: The configuration for the dataset.
+        compile_model: Whether to compile the model.
         wandb_project: The wandb project name.
+        wandb_log: Whether to log to wandb.
     """
 
     # training parameters
@@ -55,9 +57,15 @@ class TrainConfig:
     # model and dataset parameters
     model_config: NCameraCNNConfig = NCameraCNNConfig()
     dataset_config: CameraCubePoseDatasetConfig = CameraCubePoseDatasetConfig("/")  # dummy path, must be overwritten!
+    compile_model: bool = True
 
     # wandb
     wandb_project: str = "argus-estimator"
+    wandb_log: bool = True
+
+    def __post_init__(self) -> None:
+        """Assert that save_dir is a string."""
+        assert isinstance(self.save_dir, str)
 
 
 def geometric_loss_fn(pred: torch.Tensor, target: pp.LieTensor) -> torch.Tensor:
@@ -88,15 +96,16 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
 
     # model
     model = NCameraCNN(cfg.model_config).to(cfg.device)
-    model = torch.compile(model, mode="reduce-overhead")  # compiled model
-    print("Compiling the model...")
-    model(
-        torch.rand(
-            (cfg.batch_size, cfg.model_config.n_cams * 3, cfg.model_config.W, cfg.model_config.H),
-            device=cfg.device,
-        )
-    )  # warming up the optimized model
-    print("Model compiled!")
+    if cfg.compile_model:
+        model = torch.compile(model, mode="reduce-overhead")  # compiled model
+        print("Compiling the model...")
+        model(
+            torch.rand(
+                (cfg.batch_size, cfg.model_config.n_cams * 3, cfg.model_config.W, cfg.model_config.H),
+                device=cfg.device,
+            )
+        )  # warming up the optimized model
+        print("Model compiled!")
 
     # optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate)
@@ -107,7 +116,8 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
 
     # wandb
     wandb_id = generate_id()
-    wandb.init(project=cfg.wandb_project, config=cfg, id=wandb_id, resume="allow")
+    if cfg.wandb_log:
+        wandb.init(project=cfg.wandb_project, config=cfg, id=wandb_id, resume="allow")
 
     return train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn, wandb_id
 
@@ -120,15 +130,16 @@ def train(cfg: TrainConfig) -> None:
         model.train()
         for example in tqdm(train_dataloader, desc=f"Epoch {epoch}", total=len(train_dataloader)):
             # loading data
-            images = example["images"].to(cfg.device)
-            cube_pose_SE3 = example["cube_pose"].to(cfg.device)
+            images = example["images"].to(cfg.device).to(torch.float32)
+            cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)
 
             # forward pass
             cube_pose_pred_se3 = model(images)
             loss = torch.mean(loss_fn(cube_pose_pred_se3, cube_pose_SE3))
             optimizer.zero_grad()
             loss.backward()
-            wandb.log({"loss": loss.item()})
+            if cfg.wandb_log:
+                wandb.log({"loss": loss.item()})
 
             # backward pass
             torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.max_grad_norm)
@@ -143,14 +154,15 @@ def train(cfg: TrainConfig) -> None:
             with torch.no_grad():
                 val_loss = 0
                 for example in tqdm(val_dataloader, desc="Validation", total=len(val_dataloader)):
-                    images = example["images"].to(cfg.device)
-                    cube_pose_SE3 = example["cube_pose"].to(cfg.device)
+                    images = example["images"].to(cfg.device).to(torch.float32)
+                    cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)
                     cube_pose_pred_se3 = model(images)
-                    loss = loss_fn(cube_pose_pred_se3, cube_pose_SE3)
+                    loss = torch.mean(loss_fn(cube_pose_pred_se3, cube_pose_SE3))
                     val_loss += loss.item()
 
                 val_loss /= len(val_dataloader)
-                wandb.log({"val_loss": val_loss.item()})
+                if cfg.wandb_log:
+                    wandb.log({"val_loss": val_loss})
                 print(f"Validation loss: {val_loss}")
 
                 # update learning rate based on val loss
