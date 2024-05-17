@@ -4,7 +4,7 @@ import pypose as pp
 import pytest
 import torch
 
-from argus.data import CameraCubePoseDataset
+from argus.data import CameraCubePoseDataset, CameraCubePoseDatasetConfig
 from argus.utils import xyzxyzw_to_xyzwxyz_SE3
 
 # ######### #
@@ -63,18 +63,22 @@ def run_assertions(dataset, expected_len):
 def test_len(dummy_data):
     """Tests the __len__ method of the dataset."""
     # load the dataset
-    dataset = CameraCubePoseDataset(dummy_data, train=True)
+    cfg = CameraCubePoseDatasetConfig(dummy_data, train=True)
+    dataset = CameraCubePoseDataset(cfg)
     run_assertions(dataset, 10)
 
-    dataset = CameraCubePoseDataset(dummy_data, train=False)
+    cfg = CameraCubePoseDatasetConfig(dummy_data, train=False)
+    dataset = CameraCubePoseDataset(cfg)
     run_assertions(dataset, 5)
 
 
 def test_get_item(dummy_data):
     """Tests the __getitem__ method of the dataset."""
     # load the dataset
-    dataset = CameraCubePoseDataset(dummy_data, train=True)
+    cfg = CameraCubePoseDatasetConfig(dummy_data, train=True)
+    dataset = CameraCubePoseDataset(cfg)
     run_assertions(dataset, 10)
 
-    dataset = CameraCubePoseDataset(dummy_data, train=False)
+    cfg = CameraCubePoseDatasetConfig(dummy_data, train=False)
+    dataset = CameraCubePoseDataset(cfg)
     run_assertions(dataset, 5)
