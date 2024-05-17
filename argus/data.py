@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from pathlib import Path
 
 import h5py
@@ -10,10 +11,22 @@ from torch.utils.data import Dataset
 from argus.utils import xyzwxyz_to_xyzxyzw_SE3
 
 
+@dataclass(frozen=True)
+class CameraCubePoseDatasetConfig:
+    """Configuration for the CameraCubePoseDataset.
+
+    Args:
+        dataset_path: The path to the dataset. Must lead to an hdf5 file.
+        train: Whether to load the training or test set.
+    """
+
+    dataset_path: Path | str
+
+
 class CameraCubePoseDataset(Dataset):
     """The dataset for N cameras and a cube."""
 
-    def __init__(self, dataset_path: Path | str, train: bool = True) -> None:
+    def __init__(self, cfg: CameraCubePoseDatasetConfig, train: bool = True) -> None:
         """Initializes the dataset.
 
         It is stored in an hdf5 file as follows.
@@ -34,9 +47,12 @@ class CameraCubePoseDataset(Dataset):
                 - same fields as `train`.
 
         Args:
-            dataset_path: The path to the dataset. Must lead to an hdf5 file.
-            train: Whether to load the training or test set.
+            cfg: The configuration for the dataset.
+            train: Whether to load the training or test set. Default=True.
         """
+        dataset_path = cfg.dataset_path
+        train = cfg.train
+
         assert Path(dataset_path).suffix == ".hdf5", "The dataset must be stored as an hdf5 file!"
         with h5py.File(dataset_path, "r") as f:
             if train:
