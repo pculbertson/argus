@@ -14,6 +14,7 @@ def main(dataset_path: str):
         val_epochs=1,
         print_epochs=1,
         save_epochs=5,
+        save_dir="outputs/models",
         model_config=NCubeCNNConfig(
             n_cams=2,
             W=672,
