@@ -1,3 +1,5 @@
+import os
+
 import h5py
 import numpy as np
 from mlagents_envs.environment import UnityEnvironment
@@ -8,10 +10,6 @@ from mlagents_envs.base_env import ActionTuple
 
 # Path to the Unity environment executable
 env_path = "/home/albert/research/argus/LeapProject/leap_env.x86_64"
-
-# Verify the environment path
-import os
-
 if not os.path.exists(env_path):
     raise FileNotFoundError(f"The specified path does not exist: {env_path}")
 
@@ -36,29 +34,21 @@ behavior_specs = env.behavior_specs[behavior_name]
 expected_action_size = behavior_specs.action_spec.continuous_size
 print(f"Expected action size: {expected_action_size}")
 
+# variables for hdf5
+images = []
+cube_poses = []
+image_filenames = []
+
 # run some episodes
 n_episodes = 10
 for episode in range(n_episodes):
     env.reset()
     decision_steps, terminal_steps = env.get_steps(behavior_name)
-    tracked_agent = -1 # -1 indicates not yet tracking
-    done = False # For the tracked_agent
+    tracked_agent = -1  # -1 indicates not yet tracking
+    done = False  # For the tracked_agent
     while not done:
         if tracked_agent == -1 and len(decision_steps) >= 1:
             tracked_agent = decision_steps.agent_id[0]
-
-        # ############ #
-        # OBSERVATIONS #
-        # ############ #
-        # vector obs
-        vec_obs = decision_steps.obs[0]
-        print(f"Vector observation shape: {vec_obs.shape}")
-
-        # camera obs
-        cam1_obs = decision_steps.obs[1]
-        cam2_obs = decision_steps.obs[2]
-        print(f"Camera 1 observation shape: {cam1_obs.shape}")
-        print(f"Camera 1 observation type: {type(cam1_obs)}")
 
         # ####### #
         # ACTIONS #
@@ -88,6 +78,28 @@ for episode in range(n_episodes):
         env.step()
 
         decision_steps, terminal_steps = env.get_steps(behavior_name)
+
+        # ############ #
+        # OBSERVATIONS #
+        # ############ #
+        # camera obs
+        cam1_obs = decision_steps.obs[0]  # (agent_id, 3, H, W)
+        cam2_obs = decision_steps.obs[1]  # (agent_id, 3, H, W)
+        print(f"Camera 1 observation shape: {cam1_obs.shape}")
+        print(f"Camera 1 observation type: {type(cam1_obs)}")
+        print(f"Max value in camera 1 observation: {np.max(cam1_obs)}")
+        print(f"Min value in camera 1 observation: {np.min(cam1_obs)}")
+
+        # vector obs, (agent_id, 23)
+        vec_obs = decision_steps.obs[2]  # (x, y, z, qw, qy, qx, qz, q_hand[16])
+        print(f"Vector observation: {vec_obs}")
+        print(f"Vector observation shape: {vec_obs.shape}")
+
+        # bagging
+        images.append(np.concatenate([cam1_obs, cam2_obs], axis=0))
+        cube_poses.append(vec_obs[0, :7])
+        image_filenames.append((f"img_{episode}a_test.png", f"img_{episode}b_test.png"))
+        
         if tracked_agent in terminal_steps:
             done = True
 
@@ -95,3 +107,21 @@ for episode in range(n_episodes):
 
 # Close the environment
 env.close()
+
+# creating an hdf5 dataset
+data_path = "test.hdf5"
+train_test_idx = int(0.9 * len(images))
+with h5py.File(data_path, "w") as f:
+    f.attrs["n_cams"] = 2
+    f.attrs["H"] = 376
+    f.attrs["W"] = 672
+
+    train = f.create_group("train")
+    train.create_dataset("images", data=np.array(images[:train_test_idx]))
+    train.create_dataset("cube_poses", data=np.array(cube_poses[:train_test_idx]))
+    train.create_dataset("image_filenames", data=image_filenames[:train_test_idx])
+
+    test = f.create_group("test")
+    test.create_dataset("images", data=np.array(images[train_test_idx:]))
+    test.create_dataset("cube_poses", data=np.array(cube_poses[train_test_idx:]))
+    test.create_dataset("image_filenames", data=image_filenames[train_test_idx:])
