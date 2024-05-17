@@ -14,3 +14,9 @@ pip install -e .[dev]  # use [dev] for dev tooling and testing - else, don't nee
 pre-commit install
 ```
 Now, when you commit files, the checks will be run first.
+
+4. We use `wandb` to log the training process. To use it, you need to set up an account and run
+```
+wandb login
+```
+When prompted, enter your API key.
