@@ -39,7 +39,7 @@ class NCameraCNN(nn.Module):
         # adjust the first convolutional layer to match the correct number of input channels
         self.resnet.conv1 = nn.Conv2d(self.num_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
 
-        # Replace the average pooling and the final fully connected layer
+        # replace the average pooling and the final fully connected layer
         self.resnet.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 6)
 
@@ -53,4 +53,5 @@ class NCameraCNN(nn.Module):
             pose: The predicted pose of the cube in the scene expressed in se(3). To get the pose in SE(3), apply the
                 exponential map to it, e.g., `pose.Exp()`.
         """
+        assert len(x.shape) == 4, "The input images must be of shape (B, C, W, H)! If B=1, add a dummy dimension."
         return self.resnet(x)
