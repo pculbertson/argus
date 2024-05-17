@@ -1,3 +1,4 @@
+import h5py
 import numpy as np
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.side_channel.engine_configuration_channel import (
@@ -6,7 +7,6 @@ from mlagents_envs.side_channel.engine_configuration_channel import (
 from mlagents_envs.base_env import ActionTuple
 
 # Path to the Unity environment executable
-# NOTE: this is a Mac-specific path
 env_path = "/home/albert/research/argus/LeapProject/leap_env.x86_64"
 
 # Verify the environment path
@@ -41,21 +41,28 @@ n_episodes = 10
 for episode in range(n_episodes):
     env.reset()
     decision_steps, terminal_steps = env.get_steps(behavior_name)
-    print(len(decision_steps), len(terminal_steps))
-    while len(terminal_steps) == 0:
-        # Get the current state of the agent
-        decision_steps, terminal_steps = env.get_steps(behavior_name)
+    tracked_agent = -1 # -1 indicates not yet tracking
+    done = False # For the tracked_agent
+    while not done:
+        if tracked_agent == -1 and len(decision_steps) >= 1:
+            tracked_agent = decision_steps.agent_id[0]
 
-        # If no agents are found, log an error
-        if len(decision_steps) == 0:
-            print("No agents found in the environment.")
-            break
+        # ############ #
+        # OBSERVATIONS #
+        # ############ #
+        # vector obs
+        vec_obs = decision_steps.obs[0]
+        print(f"Vector observation shape: {vec_obs.shape}")
 
-        # Extract observations
-        obs = decision_steps.obs[0]  # Assuming single observation
-        print(f"Observations: {obs}")
+        # camera obs
+        cam1_obs = decision_steps.obs[1]
+        cam2_obs = decision_steps.obs[2]
+        print(f"Camera 1 observation shape: {cam1_obs.shape}")
+        print(f"Camera 1 observation type: {type(cam1_obs)}")
 
-        # Define actions (e.g., random actions)
+        # ####### #
+        # ACTIONS #
+        # ####### #
         action = np.random.uniform(-0.1, 0.1, size=(1, expected_action_size))
 
         # sample a uniformly random quaternion
@@ -79,6 +86,10 @@ for episode in range(n_episodes):
 
         # Perform a step in the environment
         env.step()
+
+        decision_steps, terminal_steps = env.get_steps(behavior_name)
+        if tracked_agent in terminal_steps:
+            done = True
 
     print(f"Episode {episode} finished")
 

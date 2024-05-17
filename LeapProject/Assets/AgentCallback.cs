@@ -9,7 +9,9 @@ public class AgentCallback : Agent
 {
     private ArticulationBody hand;
     private Rigidbody cube;
-    private Vector4 quat;
+    private Camera cam1;
+    private Camera cam2;
+
     private int rotationalJoints = 16;
 
     // Start is called before the first frame update
@@ -17,11 +19,18 @@ public class AgentCallback : Agent
     {
         hand = this.GetComponentInChildren<ArticulationBody>();
         cube = GameObject.Find("cube").GetComponent<Rigidbody>();
+        cam1 = GameObject.Find("cam1").GetComponent<Camera>();
+        cam2 = GameObject.Find("cam2").GetComponent<Camera>();
     }
 
     public override void OnEpisodeBegin()
     {
-        // do nothing
+        // randomize the camera locations and orientations
+        cam1.transform.position = new Vector3(Random.Range(-0.3f, 0.3f), Random.Range(-0.3f, 0.3f), Random.Range(-0.3f, 0.3f));
+        cam1.transform.rotation = Quaternion.Euler(Random.Range(-90f, 90f), Random.Range(-90f, 90f), Random.Range(-90f, 90f));
+
+        cam2.transform.position = new Vector3(Random.Range(-0.3f, 0.3f), Random.Range(-0.3f, 0.3f), Random.Range(-0.3f, 0.3f));
+        cam2.transform.rotation = Quaternion.Euler(Random.Range(-90f, 90f), Random.Range(-90f, 90f), Random.Range(-90f, 90f));
     }
 
     public override void CollectObservations(VectorSensor sensor)
@@ -58,11 +67,12 @@ public class AgentCallback : Agent
         cube.position = new Vector3(actionList[0], actionList[1], actionList[2]);
 
         // create a new vector of length 4 and populate it with the elements of indices 3, 4, 5, 6 in actionList
-        quat = new Vector4(actionList[4], actionList[5], actionList[6], actionList[3]);  // assume (w, x, y, z) inputs
+        Vector4 quat = new Vector4(actionList[4], actionList[5], actionList[6], actionList[3]);  // assume (w, x, y, z) inputs
         quat.Normalize();
         cube.rotation = new Quaternion(quat[0], quat[1], quat[2], quat[3]);
         hand.SetJointPositions(actionList.GetRange(7, rotationalJoints)); // Set joint positions
         SetReward(1f); // Arbitrary reward for each step
+        EndEpisode(); // End episode
     }
 
     public override void Heuristic(in ActionBuffers actionsOut)
