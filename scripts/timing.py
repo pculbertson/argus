@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from argus.models import NCameraCNN
+from argus.models import NCameraCNN, NCameraCNNConfig
 from argus.utils import time_torch_fn
 
 torch.set_float32_matmul_precision("high")
@@ -16,15 +16,16 @@ def main():
     H = 672
 
     # setting up model + compiling
-    model = NCameraCNN(n_cams=N_CAMS, H=H, W=W).to(torch.float32).cuda()
-    fwd = torch.compile(model, mode="reduce-overhead")
+    cfg = NCameraCNNConfig(n_cams=N_CAMS, W=W, H=H)
+    model = NCameraCNN(cfg).to(torch.float32).cuda()
+    model = torch.compile(model, mode="reduce-overhead")
 
     # Fixes 'Function definition does not bind loop variable 'x''.
     # stackoverflow.com/a/54947488
     def make_fn(x):
 
         def _():
-            return fwd(x)
+            return model(x)
 
         return _
 
