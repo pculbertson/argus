@@ -1,5 +1,5 @@
 from argus.data import CameraCubePoseDatasetConfig
-from argus.models import NCubeCNNConfig
+from argus.models import NCameraCNNConfig
 from argus.train import TrainConfig, train
 
 
@@ -15,7 +15,7 @@ def main(dataset_path: str):
         print_epochs=1,
         save_epochs=5,
         save_dir="outputs/models",
-        model_config=NCubeCNNConfig(
+        model_config=NCameraCNNConfig(
             n_cams=2,
             W=672,
             H=376,
@@ -23,7 +23,9 @@ def main(dataset_path: str):
         dataset_config=CameraCubePoseDatasetConfig(
             dataset_path=dataset_path,
         ),
+        compile_model=True,
         wandb_project="argus-estimator",
+        wandb_log=True,
     )
     train(train_cfg)
 
