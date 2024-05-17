@@ -83,12 +83,14 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
     # model
     model = NCameraCNN(cfg.model_config).to(cfg.device)
     model = torch.compile(model, mode="reduce-overhead")  # compiled model
+    print("Compiling the model...")
     model(
         torch.rand(
             (cfg.batch_size, cfg.model_config.n_cams * 3, cfg.model_config.W, cfg.model_config.H),
             device=cfg.device,
         )
     )  # warming up the optimized model
+    print("Model compiled!")
 
     # optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate)
