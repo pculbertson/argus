@@ -51,7 +51,6 @@ class CameraCubePoseDataset(Dataset):
             train: Whether to load the training or test set. Default=True.
         """
         dataset_path = cfg.dataset_path
-        train = cfg.train
 
         assert Path(dataset_path).suffix == ".hdf5", "The dataset must be stored as an hdf5 file!"
         with h5py.File(dataset_path, "r") as f:

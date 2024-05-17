@@ -63,22 +63,22 @@ def run_assertions(dataset, expected_len):
 def test_len(dummy_data):
     """Tests the __len__ method of the dataset."""
     # load the dataset
-    cfg = CameraCubePoseDatasetConfig(dummy_data, train=True)
-    dataset = CameraCubePoseDataset(cfg)
+    cfg = CameraCubePoseDatasetConfig(dummy_data)
+    dataset = CameraCubePoseDataset(cfg, train=True)
     run_assertions(dataset, 10)
 
-    cfg = CameraCubePoseDatasetConfig(dummy_data, train=False)
-    dataset = CameraCubePoseDataset(cfg)
+    cfg = CameraCubePoseDatasetConfig(dummy_data)
+    dataset = CameraCubePoseDataset(cfg, train=False)
     run_assertions(dataset, 5)
 
 
 def test_get_item(dummy_data):
     """Tests the __getitem__ method of the dataset."""
     # load the dataset
-    cfg = CameraCubePoseDatasetConfig(dummy_data, train=True)
-    dataset = CameraCubePoseDataset(cfg)
+    cfg = CameraCubePoseDatasetConfig(dummy_data)
+    dataset = CameraCubePoseDataset(cfg, train=True)
     run_assertions(dataset, 10)
 
-    cfg = CameraCubePoseDatasetConfig(dummy_data, train=False)
-    dataset = CameraCubePoseDataset(cfg)
+    cfg = CameraCubePoseDatasetConfig(dummy_data)
+    dataset = CameraCubePoseDataset(cfg, train=False)
     run_assertions(dataset, 5)
