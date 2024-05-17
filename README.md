@@ -15,6 +15,12 @@ pre-commit install
 ```
 Now, when you commit files, the checks will be run first.
 
+4. We use `wandb` to log the training process. To use it, you need to set up an account and run
+```
+wandb login
+```
+When prompted, enter your API key.
+
 ## Testing
 
-To run tests, run `pytest tests` in the repo root.
+To run tests, run `pytest` in the repo root.

@@ -21,6 +21,8 @@ dependencies = [
     "pypose>=0.6.7",
     "torch>=2.0.0",
     "torchvision>=0.15.2",
+    "tyro>=0.8.4",
+    "wandb>=0.17.0",
 ]
 
 [project.optional-dependencies]
