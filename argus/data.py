@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 import h5py
 import kornia
@@ -20,7 +21,11 @@ class CameraCubePoseDatasetConfig:
         train: Whether to load the training or test set.
     """
 
-    dataset_path: Path | str
+    dataset_path: Optional[Path | str] = None
+
+    def __post_init__(self) -> None:
+        """Checks that the dataset path is set."""
+        assert self.dataset_path is not None, "The dataset path must be set!"
 
 
 class CameraCubePoseDataset(Dataset):
