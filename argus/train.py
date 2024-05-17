@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pypose as pp
@@ -32,6 +33,7 @@ class TrainConfig:
         val_epochs: The number of epochs between validation.
         print_epochs: The number of epochs between printing.
         save_epochs: The number of epochs between saving.
+        save_dir: The directory to save the model.
         model_config: The configuration for the model.
         dataset_config: The configuration for the dataset.
         wandb_project: The wandb project name.
@@ -48,10 +50,11 @@ class TrainConfig:
     val_epochs: int = 1
     print_epochs: int = 1
     save_epochs: int = 5
+    save_dir: str = "outputs/models"
 
     # model and dataset parameters
     model_config: NCameraCNNConfig = NCameraCNNConfig()
-    dataset_config: CameraCubePoseDatasetConfig = CameraCubePoseDatasetConfig()
+    dataset_config: CameraCubePoseDatasetConfig = CameraCubePoseDatasetConfig("/")  # dummy path, must be overwritten!
 
     # wandb
     wandb_project: str = "argus-estimator"
@@ -67,8 +70,11 @@ def geometric_loss_fn(pred: torch.Tensor, target: pp.LieTensor) -> torch.Tensor:
     Args:
         pred: The predicted poses in se(3) of shape (B, 6).
         target: The target poses in SE(3) of shape (B, 7).
+
+    Returns:
+        losses: The losses of shape (B,).
     """
-    return torch.linalg.norm((pp.se3(pred).Exp() @ target.Inv()).Log())
+    return torch.sum((pp.se3(pred).Exp() @ target.Inv()).Log() ** 2, axis=-1)
 
 
 def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCameraCNN, Optimizer, ReduceLROnPlateau]:
@@ -119,7 +125,7 @@ def train(cfg: TrainConfig) -> None:
 
             # forward pass
             cube_pose_pred_se3 = model(images)
-            loss = loss_fn(cube_pose_pred_se3, cube_pose_SE3)
+            loss = torch.mean(loss_fn(cube_pose_pred_se3, cube_pose_SE3))
             optimizer.zero_grad()
             loss.backward()
             wandb.log({"loss": loss.item()})
@@ -151,8 +157,12 @@ def train(cfg: TrainConfig) -> None:
                 scheduler.step(val_loss)
 
         if epoch % cfg.save_epochs == 0:
-            os.makedirs("outputs/models", exist_ok=True)
-            torch.save(model.state_dict(), f"outputs/models/{wandb_id}.pth")
+            if cfg.save_dir is not None:
+                save_dir = Path(cfg.save_dir)
+            else:
+                save_dir = Path("outputs/models")
+            os.makedirs(save_dir, exist_ok=True)
+            torch.save(model.state_dict(), save_dir / f"{wandb_id}.pth")
 
 
 if __name__ == "__main__":
