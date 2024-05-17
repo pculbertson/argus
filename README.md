@@ -14,3 +14,7 @@ pip install -e .[dev]  # use [dev] if installing linting support - else, don't n
 pre-commit install
 ```
 Now, when you commit files, the checks will be run first.
+
+## Testing
+
+To run tests, run `pytest tests` in the repo root.

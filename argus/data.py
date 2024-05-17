@@ -13,7 +13,7 @@ from argus.utils import xyzwxyz_to_xyzxyzw_SE3
 class CameraCubePoseDataset(Dataset):
     """The dataset for N cameras and a cube."""
 
-    def __init__(self, dataset_path: Path, train: bool = True) -> None:
+    def __init__(self, dataset_path: Path | str, train: bool = True) -> None:
         """Initializes the dataset.
 
         It is stored in an hdf5 file as follows.
@@ -37,9 +37,9 @@ class CameraCubePoseDataset(Dataset):
             dataset_path: The path to the dataset. Must lead to an hdf5 file.
             train: Whether to load the training or test set.
         """
-        assert dataset_path.suffix == ".hdf5", "The dataset must be stored as an hdf5 file!"
+        assert Path(dataset_path).suffix == ".hdf5", "The dataset must be stored as an hdf5 file!"
         with h5py.File(dataset_path, "r") as f:
-            if self.train:
+            if train:
                 self.dataset = f["train"]
             else:
                 self.dataset = f["test"]
@@ -63,9 +63,9 @@ class CameraCubePoseDataset(Dataset):
         """Returns the idx-th datapoint."""
         # converts image shapes (n_cams, H, W, C) -> (n_cams * 3, H, W)
         # see: github.com/kornia/kornia/blob/3ce96a35bedf505bf416af21e5f01b5861c998df/kornia/utils/image.py#L10
-        images = kornia.utils.image_to_tensor(self.images[idx]).reshape((-1, self.H, self.W))
+        images = kornia.utils.image_to_tensor(self.images[idx]).permute(0, 3, 1, 2).reshape((-1, self.H, self.W))
         return {
             "images": images,
-            "cube_pose": self.object_poses[idx],
-            "image_filenames": self.image_filenames[idx],
+            "cube_pose": self.cube_poses[idx],
+            "image_filenames": tuple(self.image_filenames[idx]),
         }

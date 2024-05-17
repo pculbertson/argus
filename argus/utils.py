@@ -20,7 +20,7 @@ def xyzwxyz_to_xyzxyzw_SE3(xyzwxyz: torch.Tensor) -> torch.Tensor:
         (
             xyzwxyz[..., :3],  # translations
             xyzwxyz[..., -3:],  # the (qx, qy, qz) components
-            xyzwxyz[..., -4],  # the qw component
+            xyzwxyz[..., -4:-3],  # the qw component
         ),
         dim=-1,
     )
