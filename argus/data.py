@@ -43,9 +43,9 @@ class CameraCubePoseDataset(Dataset):
             - H: the height of the images.
         Structure:
             - train
-                - images: The images of the cube of shape (n_data, n_cams, H, W, C). The pixel values should be
-                    normalized between 0 and 1. The alpha channel should be the last one. When the images are retrieved
-                    from the dataset, we swap the shape order to become (n_cams * C, H, W)!
+                - images: The images of the cube of shape (n_data, n_cams, C, H, W). The pixel values should be
+                    normalized between 0 and 1. There should be no alpha channel. When the images are retrieved
+                    from the dataset, we flatten the shape to (n_cams * C, H, W)!
                 - cube_poses: The poses of the cube of shape (n_data, 7), (x, y, z, qw, qx, qy, qz).
                 - image_filenames: The filenames of the associated data given as tuples of length n_cams.
                     Primarily used for debugging.
@@ -73,7 +73,7 @@ class CameraCubePoseDataset(Dataset):
             # grabbing the data
             _cube_poses = torch.from_numpy(self.dataset["cube_poses"][()])  # original quat order is (w, x, y, z)
             self.cube_poses = pp.SE3(xyzwxyz_to_xyzxyzw_SE3(_cube_poses))  # pp expects quat order to be (x, y, z, w)
-            self.images = self.dataset["images"][()][..., :3]  # (n_data, n_cams, H, W, 3)
+            self.images = self.dataset["images"][()]  # (n_data, n_cams, 3, H, W)
             self.image_filenames = self.dataset["image_filenames"][()]  # list of tuples, (n_data, (n_cams,))
 
     def __len__(self) -> int:
@@ -82,9 +82,7 @@ class CameraCubePoseDataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict:
         """Returns the idx-th datapoint."""
-        # converts image shapes (n_cams, H, W, C) -> (n_cams * 3, H, W)
-        # see: github.com/kornia/kornia/blob/3ce96a35bedf505bf416af21e5f01b5861c998df/kornia/utils/image.py#L10
-        images = kornia.utils.image_to_tensor(self.images[idx]).permute(0, 3, 1, 2).reshape((-1, self.H, self.W))
+        images = torch.tensor(self.images[idx]).reshape((-1, self.H, self.W))  # (n_cams * 3, H, W)
         return {
             "images": images.to(torch.float32),
             "cube_pose": self.cube_poses[idx],
