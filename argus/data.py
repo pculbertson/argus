@@ -21,11 +21,12 @@ class CameraCubePoseDatasetConfig:
         train: Whether to load the training or test set.
     """
 
-    dataset_path: Optional[Path | str] = None
+    dataset_path: Optional[str] = None
 
     def __post_init__(self) -> None:
-        """Checks that the dataset path is set."""
+        """Checks that the dataset path is set and that it is a string for wandb serialization."""
         assert self.dataset_path is not None, "The dataset path must be set!"
+        assert isinstance(self.dataset_path, str), "The dataset path must be a str!"
 
 
 class CameraCubePoseDataset(Dataset):
@@ -85,7 +86,7 @@ class CameraCubePoseDataset(Dataset):
         # see: github.com/kornia/kornia/blob/3ce96a35bedf505bf416af21e5f01b5861c998df/kornia/utils/image.py#L10
         images = kornia.utils.image_to_tensor(self.images[idx]).permute(0, 3, 1, 2).reshape((-1, self.H, self.W))
         return {
-            "images": images,
+            "images": images.to(torch.float32),
             "cube_pose": self.cube_poses[idx],
             "image_filenames": tuple(self.image_filenames[idx]),
         }
