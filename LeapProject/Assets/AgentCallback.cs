@@ -19,10 +19,6 @@ public class AgentCallback : Agent {
         cube = this.GetComponentInChildren<Rigidbody>();
         cam1 = this.GetComponentsInChildren<Camera>()[0];
         cam2 = this.GetComponentsInChildren<Camera>()[1];
-
-        // debug print the camera orientations in xyzw quaternion convention
-        Debug.Log("Camera 1 quaternion: " + cam1.transform.localRotation);
-        Debug.Log("Camera 2 quaternion: " + cam2.transform.localRotation);
     }
 
     public override void OnEpisodeBegin() { /** do nothing **/ }
@@ -81,6 +77,7 @@ public class AgentCallback : Agent {
     }
 
     public override void Heuristic(in ActionBuffers actionsOut) {
+        // heuristic used entirely for debugging
         var continuousActions = actionsOut.ContinuousActions;
         for (int ii = 0; ii < continuousActions.Length; ii++) {
             continuousActions[ii] = Random.Range(-0.3f, 0.3f);
