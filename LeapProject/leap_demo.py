@@ -351,13 +351,13 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         f.attrs["W"] = 672
 
         train = f.create_group("train")
-        train.create_dataset("images", data=np.concatenate(images, axis=0)[:train_test_idx])
-        train.create_dataset("cube_poses", data=np.concatenate(cube_poses_truncated, axis=0)[:train_test_idx])
+        train.create_dataset("images", data=np.concatenate(images, axis=0)[:train_test_idx, ...])
+        train.create_dataset("cube_poses", data=cube_poses_truncated[:train_test_idx, ...])
         train.create_dataset("image_filenames", data=image_filenames[:train_test_idx])
 
         test = f.create_group("test")
-        test.create_dataset("images", data=np.concatenate(images, axis=0)[train_test_idx:])
-        test.create_dataset("cube_poses", data=np.concatenate(cube_poses_truncated, axis=0)[train_test_idx:])
+        test.create_dataset("images", data=np.concatenate(images, axis=0)[train_test_idx:, ...])
+        test.create_dataset("cube_poses", data=cube_poses_truncated[train_test_idx:, ...])
         test.create_dataset("image_filenames", data=image_filenames[train_test_idx:])
 
     env.close()
