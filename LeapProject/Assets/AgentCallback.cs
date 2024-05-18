@@ -23,17 +23,7 @@ public class AgentCallback : Agent {
 
     public override void OnEpisodeBegin() { /** do nothing **/ }
 
-    public override void CollectObservations(VectorSensor sensor) {
-        // ONLY returns the vector observations! Camera observations handled elsewhere
-        // cube states
-        sensor.AddObservation(cube.transform.localPosition.x);
-        sensor.AddObservation(cube.transform.localPosition.y);
-        sensor.AddObservation(cube.transform.localPosition.z);
-        sensor.AddObservation(cube.transform.localRotation.w);
-        sensor.AddObservation(cube.transform.localRotation.x);
-        sensor.AddObservation(cube.transform.localRotation.y);
-        sensor.AddObservation(cube.transform.localRotation.z);
-    }
+    public override void CollectObservations(VectorSensor sensor) { /** do nothing **/ }
 
     public override void OnActionReceived(ActionBuffers actionBuffers) {
         // there are a total of 2 * 7 + 7 + 16 = 37 actions
@@ -74,13 +64,5 @@ public class AgentCallback : Agent {
         // concluding
         SetReward(1f); // arbitrary unused reward
         EndEpisode();  // let each episode be 1 action for simplicity
-    }
-
-    public override void Heuristic(in ActionBuffers actionsOut) {
-        // heuristic used entirely for debugging
-        var continuousActions = actionsOut.ContinuousActions;
-        for (int ii = 0; ii < continuousActions.Length; ii++) {
-            continuousActions[ii] = Random.Range(-0.3f, 0.3f);
-        }
     }
 }
