@@ -30,9 +30,7 @@ public class AgentCallback : Agent {
         // * each of the two cameras has 7 DOFs
         // * the cube has 7 DOFs
         // * the hand has 16 DOFs
-        // we assume that poses are in the order (x, y, z, qx, qy, qz, qw). This is the OPPOSITE of the
-        // observation convention!
-        // the Quaternion object in Unity constructs quaternions using the (qx, qy, qz, qw) convention.
+        // we assume that poses are in the order (x, y, z, qx, qy, qz, qw), which is Unity's convention.
 
         // retrieve all actions into a list
         var continuousActions = actionBuffers.ContinuousActions;
