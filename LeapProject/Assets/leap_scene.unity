@@ -5626,15 +5626,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 242d2ebc90d2812c18b4733118106a9f, type: 3}
       propertyPath: m_LocalRotation.x
-      value: -0
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 242d2ebc90d2812c18b4733118106a9f, type: 3}
       propertyPath: m_LocalRotation.y
-      value: -0
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 242d2ebc90d2812c18b4733118106a9f, type: 3}
       propertyPath: m_LocalRotation.z
-      value: -0
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 242d2ebc90d2812c18b4733118106a9f, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
@@ -6544,7 +6544,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   baseArea: {fileID: 309871097}
-  numAreas: 1
+  numAreas: 10
   separation: 1
   buildOnly: 1
 --- !u!4 &2031166828
