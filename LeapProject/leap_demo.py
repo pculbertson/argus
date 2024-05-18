@@ -57,7 +57,7 @@ def generate_random_camera_poses(
         cam_poses: Random camera poses for n_agents. Shape=(n_agents, 7), where the last 4 elements are the quaternion
             expressed in xyzw convention.
     """
-    translations = np.random.uniform(-bounds_trans, bounds_trans, size=(n_agents, 3))
+    translations = mu_trans + np.random.uniform(-bounds_trans, bounds_trans, size=(n_agents, 3))
 
     # small perturbation to a quaternion
     # see: math.stackexchange.com/a/477151/876331
@@ -104,8 +104,8 @@ class GenerateDataConfig:
     )
     # cam1_nominal: np.ndarray = np.array([0.125994, -0.00858148, -0.14786571, -0.45576804, -0.060003, 0.70455634, -0.5406251])
     # cam2_nominal: np.ndarray = np.array([0.125994, -0.00858148, 0.14786571, -0.70455634, -0.5406251, 0.45576804, -0.060003])
-    bounds_trans: float = 1e-6
-    quat_stdev: float = 1e-6
+    bounds_trans: float = 0.01
+    quat_stdev: float = 0.05
     train_frac: float = 0.9
 
     def __post_init__(self):
@@ -168,20 +168,20 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         assert cam1_obs.shape == cam2_obs.shape == (n_agents, 3, 376, 672)
         assert vec_obs.shape == (n_agents, 7)
 
-        # # debug - this saves some images out so you can check what they look like
-        # for i in range(cam1_obs.shape[0]):
-        #     img = cam1_obs[i].transpose(1, 2, 0)
-        #     img = (img - np.min(img)) / (np.max(img) - np.min(img))
-        #     img = (img * 255).astype(np.uint8)
-        #     img = Image.fromarray(img)
-        #     img.save(f"img_{i}a.png")
+        # debug - this saves some images out so you can check what they look like
+        for i in range(cam1_obs.shape[0]):
+            img = cam1_obs[i].transpose(1, 2, 0)
+            img = (img - np.min(img)) / (np.max(img) - np.min(img))
+            img = (img * 255).astype(np.uint8)
+            img = Image.fromarray(img)
+            img.save(f"img_{i}a.png")
 
-        #     img = cam2_obs[i].transpose(1, 2, 0)
-        #     img = (img - np.min(img)) / (np.max(img) - np.min(img))
-        #     img = (img * 255).astype(np.uint8)
-        #     img = Image.fromarray(img)
-        #     img.save(f"img_{i}b.png")
-        # breakpoint()
+            img = cam2_obs[i].transpose(1, 2, 0)
+            img = (img - np.min(img)) / (np.max(img) - np.min(img))
+            img = (img * 255).astype(np.uint8)
+            img = Image.fromarray(img)
+            img.save(f"img_{i}b.png")
+        breakpoint()
 
         # bagging the data
         images.append(np.concatenate([cam1_obs, cam2_obs], axis=1).reshape(n_agents, 6, 376, 672))
@@ -213,7 +213,7 @@ if __name__ == "__main__":
     # cfg = tyro.cli(GenerateDataConfig)  # TODO(ahl): once stable, switch to tyro
     cfg = GenerateDataConfig(
         env_exe_path="/home/albert/research/argus/LeapProject/leap_env.x86_64",
-        n_agents=1,
+        n_agents=10,
         n_episodes=1,
     )
     generate_data(cfg)
