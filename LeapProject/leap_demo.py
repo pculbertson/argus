@@ -1,5 +1,8 @@
+import json
 import os
+import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -10,6 +13,7 @@ from mlagents_envs.side_channel.engine_configuration_channel import (
 from mlagents_envs.base_env import ActionTuple
 from PIL import Image
 from scipy.spatial.transform import Rotation as R
+from tqdm import tqdm
 
 
 # TODO(ahl): when merging the unity stuff with the rest of argus, integrate these utils and tests properly
@@ -212,9 +216,9 @@ class GenerateDataConfig:
 
     Fields:
         env_exe_path: Path to the Unity environment executable.
+        mjpc_data_path: Path to the bagged mjpc sim data.
         n_agents: Number of agents in the environment.
-        n_episodes: Number of episodes to run.
-        data_path: Path to save the generated data.
+        output_data_path: Path to save the generated data.
         cam1_nominal: Nominal camera pose for camera 1. The last 4 quat coords are xyzw convention. Shape=(7,).
         cam2_nominal: Nominal camera pose for camera 2. The last 4 quat coords are xyzw convention. Shape=(7,).
         bounds_trans: Bounds of the uniform translation perturbations in meters.
@@ -222,9 +226,9 @@ class GenerateDataConfig:
         train_frac: Fraction of the data to use for training.
     """
     env_exe_path: str
+    mjpc_data_path: str
     n_agents: int
-    n_episodes: int  # TODO(ahl): remove this, depends on the size of the mujoco data we're reading
-    data_path: str = "cube_unity_data.hdf5"
+    output_data_path: str = "cube_unity_data.hdf5"
     cam1_nominal: np.ndarray = np.array(
         [
             -0.14786571, 0.125994, 0.00858148,
@@ -243,31 +247,48 @@ class GenerateDataConfig:
 
     def __post_init__(self):
         if not os.path.exists(self.env_exe_path):
-            raise FileNotFoundError(f"The specified path does not exist: {self.env_exe_path}")
+            raise FileNotFoundError(f"The specified path does not exist: {self.env_exe_path}!")
+        if not os.path.exists(self.mjpc_data_path):
+            raise FileNotFoundError(f"The specified path does not exist: {self.mjpc_data_path}!")
+        assert Path(self.output_data_path).suffix == ".hdf5", "The data path must have the .hdf5 extension!"
+        assert Path(self.mjpc_data_path).suffix == ".json", "The mjpc data must be contained in a json file!"
+        assert Path(self.env_exe_path).suffix in [".x86_64", ".app"], "The Unity environment must be an executable!"
 
 def generate_data(cfg: GenerateDataConfig) -> None:
     """Main data generation loop."""
     # unpacking variables from config
     env_exe_path = cfg.env_exe_path
+    mjpc_data_path = cfg.mjpc_data_path
     n_agents = cfg.n_agents
-    n_episodes = cfg.n_episodes
-    data_path = cfg.data_path
+    output_data_path = cfg.output_data_path
     cam1_nominal = cfg.cam1_nominal
     cam2_nominal = cfg.cam2_nominal
     bounds_trans = cfg.bounds_trans
     quat_stdev = cfg.quat_stdev
     train_frac = cfg.train_frac
 
+    # retrieving the mjpc sim data
+    f = open(mjpc_data_path)
+    all_data = json.load(f)
+    q_all = np.array([all_data[i]["s"] for i in range(len(all_data))])[..., :23]  # (n_data, :23)
+    cube_poses_mjpc = q_all[..., :7]
+    cube_poses_all = convert_pose_mjpc_to_unity(cube_poses_mjpc)  # (n_data, 7)
+    q_leap_all = q_all[..., 7:]  # (n_data, 16)
+    n_episodes = cube_poses_all.shape[0] // n_agents
+    cube_poses_truncated = cube_poses_all[:n_agents * n_episodes, :]  # (n_agents * n_episodes, 7)
+
     # generating data
     env, behavior_name, expected_action_size = unity_setup(env_exe_path, n_agents=n_agents)
     images = []
-    cube_poses = []
     image_filenames = []
 
-    for episode in range(n_episodes):
+    print("Rendering image data...")
+    for episode in tqdm(range(n_episodes), desc="Episodes"):
         env.reset()
 
-        # set the states for the agents
+        # computing actions to send to Unity agent (these are the states we want to set)
+        cube_poses_batch = cube_poses_all[episode * n_agents : (episode + 1) * n_agents]  # (n_agents, 7)
+        q_leap = q_leap_all[episode * n_agents : (episode + 1) * n_agents]  # (n_agents, 16)
         cam1_poses = generate_random_camera_poses(
             n_agents,
             cam1_nominal[:3],
@@ -282,11 +303,14 @@ def generate_data(cfg: GenerateDataConfig) -> None:
             bounds_trans=bounds_trans,
             quat_stdev=quat_stdev,
         )  # (n_agents, 7)
+
         action = np.zeros((n_agents, expected_action_size))
         action[:, :7] = cam1_poses
         action[:, 7:14] = cam2_poses
-        # TODO(ahl): load the cube and hand states from data into actions
+        action[:, 14:21] = cube_poses_batch
+        action[:, 21:] = q_leap
 
+        # advancing the Unity sim and rendering out observations
         action_tuple = ActionTuple(continuous=action)
         env.set_actions(behavior_name, action_tuple)
         env.step()
@@ -295,56 +319,56 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         # observing the system
         cam1_obs = decision_steps.obs[0]  # (n_agents, 3, H, W)
         cam2_obs = decision_steps.obs[1]  # (n_agents, 3, H, W)
-        vec_obs = decision_steps.obs[2]  # (x, y, z, qw, qy, qx, qz, q_hand[16])
-        assert cam1_obs.shape == cam2_obs.shape == (n_agents, 3, 376, 672)
-        assert vec_obs.shape == (n_agents, 7)
-
-        # debug - this saves some images out so you can check what they look like
-        for i in range(cam1_obs.shape[0]):
-            img = cam1_obs[i].transpose(1, 2, 0)
-            img = (img - np.min(img)) / (np.max(img) - np.min(img))
-            img = (img * 255).astype(np.uint8)
-            img = Image.fromarray(img)
-            img.save(f"img_{i}a.png")
-
-            img = cam2_obs[i].transpose(1, 2, 0)
-            img = (img - np.min(img)) / (np.max(img) - np.min(img))
-            img = (img * 255).astype(np.uint8)
-            img = Image.fromarray(img)
-            img.save(f"img_{i}b.png")
-        breakpoint()
 
         # bagging the data
         images.append(np.concatenate([cam1_obs, cam2_obs], axis=1).reshape(n_agents, 6, 376, 672))
-        cube_poses.append(vec_obs)
         for i in range(n_agents):
             img_idx = episode * n_agents + i
             image_filenames.append((f"img_{img_idx}a.png", f"img_{img_idx}b.png"))
 
-    env.close()
+            # debug - this saves some images out so you can check what they look like
+            #########################################################################
+            # img = cam1_obs[i].transpose(1, 2, 0)
+            # img = (img - np.min(img)) / (np.max(img) - np.min(img))
+            # img = (img * 255).astype(np.uint8)
+            # img = Image.fromarray(img)
+            # img.save(f"img_{img_idx}a.png")
+
+            # img = cam2_obs[i].transpose(1, 2, 0)
+            # img = (img - np.min(img)) / (np.max(img) - np.min(img))
+            # img = (img * 255).astype(np.uint8)
+            # img = Image.fromarray(img)
+            # img.save(f"img_{img_idx}b.png")
+            #########################################################################
 
     # generating hdf5 file
+    print("Saving all data to file...")
     train_test_idx = int(train_frac * len(images) * n_agents)
-    with h5py.File(data_path, "w") as f:
+    with h5py.File(output_data_path, "w") as f:
         f.attrs["n_cams"] = 2
         f.attrs["H"] = 376
         f.attrs["W"] = 672
 
         train = f.create_group("train")
         train.create_dataset("images", data=np.concatenate(images, axis=0)[:train_test_idx])
-        train.create_dataset("cube_poses", data=np.concatenate(cube_poses, axis=0)[:train_test_idx])
+        train.create_dataset("cube_poses", data=np.concatenate(cube_poses_truncated, axis=0)[:train_test_idx])
         train.create_dataset("image_filenames", data=image_filenames[:train_test_idx])
 
         test = f.create_group("test")
         test.create_dataset("images", data=np.concatenate(images, axis=0)[train_test_idx:])
-        test.create_dataset("cube_poses", data=np.concatenate(cube_poses, axis=0)[train_test_idx:])
+        test.create_dataset("cube_poses", data=np.concatenate(cube_poses_truncated, axis=0)[train_test_idx:])
         test.create_dataset("image_filenames", data=image_filenames[train_test_idx:])
+
+    env.close()
 
 if __name__ == "__main__":
     # cfg = tyro.cli(GenerateDataConfig)  # TODO(ahl): once stable, switch to tyro
     cfg = GenerateDataConfig(
         env_exe_path="/home/albert/research/argus/LeapProject/leap_env.x86_64",
-        n_agents=10,
-        n_episodes=1,
+        mjpc_data_path="/home/albert/research/cube_rotation/dev_ws/src/sim_residuals.json",
+        n_agents=1,
     )
+    start = time.time()
     generate_data(cfg)
+    end = time.time()
+    print(f"Data generation took {end - start:.2f} seconds.")
