@@ -5,8 +5,7 @@ using Unity.MLAgents;
 using Unity.MLAgents.Sensors;
 using Unity.MLAgents.Actuators;
 
-public class AgentCallback : Agent
-{
+public class AgentCallback : Agent {
     private ArticulationBody hand;
     private Rigidbody cube;
     private Camera cam1;
@@ -15,72 +14,76 @@ public class AgentCallback : Agent
     private int rotationalJoints = 16;
 
     // Start is called before the first frame update
-    void Start()
-    {
+    void Start() {
         hand = this.GetComponentInChildren<ArticulationBody>();
-        cube = GameObject.Find("cube").GetComponent<Rigidbody>();
-        cam1 = GameObject.Find("cam1").GetComponent<Camera>();
-        cam2 = GameObject.Find("cam2").GetComponent<Camera>();
+        cube = this.GetComponentInChildren<Rigidbody>();
+        cam1 = this.GetComponentsInChildren<Camera>()[0];
+        cam2 = this.GetComponentsInChildren<Camera>()[1];
+
+        // debug print the camera orientations in xyzw quaternion convention
+        Debug.Log("Camera 1 quaternion: " + cam1.transform.localRotation);
+        Debug.Log("Camera 2 quaternion: " + cam2.transform.localRotation);
     }
 
-    public override void OnEpisodeBegin()
-    {
-        // randomize the camera locations and orientations
-        cam1.transform.position = new Vector3(Random.Range(-0.3f, 0.3f), Random.Range(-0.3f, 0.3f), Random.Range(-0.3f, 0.3f));
-        cam1.transform.rotation = Quaternion.Euler(Random.Range(-90f, 90f), Random.Range(-90f, 90f), Random.Range(-90f, 90f));
+    public override void OnEpisodeBegin() { /** do nothing **/ }
 
-        cam2.transform.position = new Vector3(Random.Range(-0.3f, 0.3f), Random.Range(-0.3f, 0.3f), Random.Range(-0.3f, 0.3f));
-        cam2.transform.rotation = Quaternion.Euler(Random.Range(-90f, 90f), Random.Range(-90f, 90f), Random.Range(-90f, 90f));
-    }
-
-    public override void CollectObservations(VectorSensor sensor)
-    {
+    public override void CollectObservations(VectorSensor sensor) {
+        // ONLY returns the vector observations! Camera observations handled elsewhere
         // cube states
-        sensor.AddObservation(cube.position.x);
-        sensor.AddObservation(cube.position.y);
-        sensor.AddObservation(cube.position.z);
-        sensor.AddObservation(cube.rotation.w);
-        sensor.AddObservation(cube.rotation.x);
-        sensor.AddObservation(cube.rotation.y);
-        sensor.AddObservation(cube.rotation.z);
-
-        // hand states
-        List<float> jointPositions = new List<float>();
-        hand.GetJointPositions(jointPositions); // Correctly get joint positions
-        for (int ii = 0; ii < rotationalJoints; ii++)
-        {
-            sensor.AddObservation(jointPositions[ii]); // Add each joint position to observations
-        }
+        sensor.AddObservation(cube.transform.localPosition.x);
+        sensor.AddObservation(cube.transform.localPosition.y);
+        sensor.AddObservation(cube.transform.localPosition.z);
+        sensor.AddObservation(cube.transform.localRotation.w);
+        sensor.AddObservation(cube.transform.localRotation.x);
+        sensor.AddObservation(cube.transform.localRotation.y);
+        sensor.AddObservation(cube.transform.localRotation.z);
     }
 
-    public override void OnActionReceived(ActionBuffers actionBuffers)
-    {
-        // Convert ContinuousActions to a List<float>
+    public override void OnActionReceived(ActionBuffers actionBuffers) {
+        // there are a total of 2 * 7 + 7 + 16 = 37 actions
+        // * each of the two cameras has 7 DOFs
+        // * the cube has 7 DOFs
+        // * the hand has 16 DOFs
+        // we assume that poses are in the order (x, y, z, qx, qy, qz, qw). This is the OPPOSITE of the
+        // observation convention!
+        // the Quaternion object in Unity constructs quaternions using the (qx, qy, qz, qw) convention.
+
+        // retrieve all actions into a list
         var continuousActions = actionBuffers.ContinuousActions;
         List<float> actionList = new List<float>(continuousActions.Length);
-        for (int ii = 0; ii < continuousActions.Length; ii++)
-        {
+        for (int ii = 0; ii < continuousActions.Length; ii++) {
             actionList.Add(continuousActions[ii]);
         }
 
-        // Set the state of the cube with the first 7 actions in the action list
-        cube.position = new Vector3(actionList[0], actionList[1], actionList[2]);
+        // set the camera states
+        cam1.transform.localPosition = new Vector3(actionList[0], actionList[1], actionList[2]);
+        Vector4 quat_cam1 = new Vector4(actionList[3], actionList[4], actionList[5], actionList[6]);
+        quat_cam1.Normalize();
+        cam1.transform.rotation = new Quaternion(quat_cam1[0], quat_cam1[1], quat_cam1[2], quat_cam1[3]);
 
-        // create a new vector of length 4 and populate it with the elements of indices 3, 4, 5, 6 in actionList
-        Vector4 quat = new Vector4(actionList[4], actionList[5], actionList[6], actionList[3]);  // assume (w, x, y, z) inputs
-        quat.Normalize();
-        cube.rotation = new Quaternion(quat[0], quat[1], quat[2], quat[3]);
-        hand.SetJointPositions(actionList.GetRange(7, rotationalJoints)); // Set joint positions
-        SetReward(1f); // Arbitrary reward for each step
-        EndEpisode(); // End episode
+        cam2.transform.localPosition = new Vector3(actionList[7], actionList[8], actionList[9]);
+        Vector4 quat_cam2 = new Vector4(actionList[10], actionList[11], actionList[12], actionList[13]);
+        quat_cam2.Normalize();
+        cam2.transform.rotation = new Quaternion(quat_cam2[0], quat_cam2[1], quat_cam2[2], quat_cam2[3]);
+
+        // set the cube states
+        cube.transform.localPosition = new Vector3(actionList[14], actionList[15], actionList[16]);
+        Vector4 quat_cube = new Vector4(actionList[17], actionList[18], actionList[19], actionList[20]);
+        quat_cube.Normalize();
+        cube.transform.rotation = new Quaternion(quat_cube[0], quat_cube[1], quat_cube[2], quat_cube[3]);
+
+        // set the hand states
+        hand.SetJointPositions(actionList.GetRange(21, rotationalJoints)); // Set joint positions
+
+        // concluding
+        SetReward(1f); // arbitrary unused reward
+        EndEpisode();  // let each episode be 1 action for simplicity
     }
 
-    public override void Heuristic(in ActionBuffers actionsOut)
-    {
+    public override void Heuristic(in ActionBuffers actionsOut) {
         var continuousActions = actionsOut.ContinuousActions;
-        for (int ii = 0; ii < continuousActions.Length; ii++)
-        {
-            continuousActions[ii] = Random.Range(-0.1f, 0.1f);
+        for (int ii = 0; ii < continuousActions.Length; ii++) {
+            continuousActions[ii] = Random.Range(-0.3f, 0.3f);
         }
     }
 }
