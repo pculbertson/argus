@@ -272,10 +272,11 @@ def generate_data(cfg: GenerateDataConfig) -> None:
     all_data = json.load(f)
     q_all = np.array([all_data[i]["s"] for i in range(len(all_data))])[..., :23]  # (n_data, :23)
     cube_poses_mjpc = q_all[..., :7]
-    cube_poses_all = convert_pose_mjpc_to_unity(cube_poses_mjpc)  # (n_data, 7)
+    cube_poses_all = convert_pose_mjpc_to_unity(cube_poses_mjpc)  # (n_data, 7), UNITY coords
     q_leap_all = q_all[..., 7:]  # (n_data, 16)
     n_episodes = cube_poses_all.shape[0] // n_agents
-    cube_poses_truncated = cube_poses_all[:n_agents * n_episodes, :]  # (n_agents * n_episodes, 7)
+    _cube_poses_truncated = cube_poses_all[:n_agents * n_episodes, :]  # (n_agents * n_episodes, 7)
+    cube_poses_truncated = convert_pose_unity_to_mjpc(_cube_poses_truncated)  # MJPC coords
 
     # generating data
     env, behavior_name, expected_action_size = unity_setup(env_exe_path, n_agents=n_agents)
