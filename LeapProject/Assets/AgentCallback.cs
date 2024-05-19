@@ -67,11 +67,16 @@ public class AgentCallback : Agent {
         EndEpisode();  // let each episode be 1 action for simplicity
     }
 
-    public override void Heuristic(in ActionBuffers actionsOut) {
-        // heuristic used entirely for debugging
-        var continuousActions = actionsOut.ContinuousActions;
-        for (int ii = 0; ii < continuousActions.Length; ii++) {
-            continuousActions[ii] = Random.Range(-0.3f, 0.3f);
-        }
-    }
+    // public override void Heuristic(in ActionBuffers actionsOut) {
+    //     // heuristic used entirely for debugging
+    //     var continuousActions = actionsOut.ContinuousActions;
+    //     for (int ii = 0; ii < continuousActions.Length; ii++) {
+    //         if (ii == 36) {
+    //             // continuousActions[ii] = Random.Range(-0.3f, 0.3f);
+    //             continuousActions[ii] = 1.57f;
+    //         } else {
+    //             continuousActions[ii] = 0.0f;
+    //         }
+    //     }
+    // }
 }
