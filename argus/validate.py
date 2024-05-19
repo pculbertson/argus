@@ -92,17 +92,19 @@ def validate(cfg: ValConfig) -> None:
     for i, example in tqdm(enumerate(dataloader), total=len(dataloader)):
         # forward pass
         images = example["images"].to(device).to(torch.float32)
-        cube_pose_true = example["cube_pose"].to(device).to(torch.float32)
-        cube_pose_pred = model(images)
-        loss = torch.mean(geometric_loss_fn(cube_pose_pred, cube_pose_true))
+        cube_pose_true_SE3 = example["cube_pose"].to(device).to(torch.float32)
+        cube_pose_pred_se3 = model(images)
+        loss = torch.mean(geometric_loss_fn(cube_pose_pred_se3, cube_pose_true_SE3))
 
         # plot the true and predicted cube poses
+        cube_pose_pred_SE3 = pp.se3(cube_pose_pred_se3).Exp()
+
         fig = plt.figure(figsize=plt.figaspect(1.0 / 3.0))
         fig.suptitle(f"Cube Pose Prediction Validation | Checkpoint: {ckpt_name}")
 
         ax = fig.add_subplot(131, projection="3d")
-        ax = plot_axes_from_pose(cube_pose_true[0], true=True, ax=ax)
-        ax = plot_axes_from_pose(cube_pose_pred[0], true=False, ax=ax)
+        ax = plot_axes_from_pose(cube_pose_true_SE3[0], true=True, ax=ax)
+        ax = plot_axes_from_pose(cube_pose_pred_SE3[0], true=False, ax=ax)
         ax.set_title(f"Example {i} | Loss: {loss.item():.3f}")
         ax.set_xlim(-1, 1)
         ax.set_ylim(-1, 1)
@@ -134,7 +136,7 @@ def validate(cfg: ValConfig) -> None:
 
 
 if __name__ == "__main__":
-    model_path = ROOT + "/outputs/models/c4vibi51.pth"
+    model_path = ROOT + "/outputs/models/0di7f7b0.pth"
     dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/cube_unity_data.hdf5")
     cfg = ValConfig(model_path, dataset_cfg)
     validate(cfg)
