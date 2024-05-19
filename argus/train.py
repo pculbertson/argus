@@ -7,13 +7,13 @@ import pypose as pp
 import torch
 import torch.nn as nn
 import tyro
+import wandb
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from wandb.util import generate_id
 
-import wandb
 from argus import ROOT
 from argus.data import CameraCubePoseDataset, CameraCubePoseDatasetConfig
 from argus.models import NCameraCNN, NCameraCNNConfig

@@ -3,8 +3,8 @@ from pathlib import Path
 import pypose as pp
 import pytest
 import torch
-
 import wandb
+
 from argus.data import CameraCubePoseDatasetConfig
 from argus.models import NCameraCNNConfig
 from argus.train import TrainConfig, geometric_loss_fn, train
