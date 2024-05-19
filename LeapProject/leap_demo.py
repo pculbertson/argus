@@ -350,15 +350,17 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         f.attrs["H"] = 376
         f.attrs["W"] = 672
 
+        idxs = np.random.permutation(len(images))  # shuffle the data before splitting into train/test
+
         train = f.create_group("train")
-        train.create_dataset("images", data=np.concatenate(images, axis=0)[:train_test_idx, ...])
-        train.create_dataset("cube_poses", data=cube_poses_truncated[:train_test_idx, ...])
-        train.create_dataset("image_filenames", data=image_filenames[:train_test_idx])
+        train.create_dataset("images", data=np.concatenate(images, axis=0)[idxs][:train_test_idx, ...])
+        train.create_dataset("cube_poses", data=cube_poses_truncated[idxs][:train_test_idx, ...])
+        train.create_dataset("image_filenames", data=np.array(image_filenames)[idxs][:train_test_idx].tolist())
 
         test = f.create_group("test")
-        test.create_dataset("images", data=np.concatenate(images, axis=0)[train_test_idx:, ...])
-        test.create_dataset("cube_poses", data=cube_poses_truncated[train_test_idx:, ...])
-        test.create_dataset("image_filenames", data=image_filenames[train_test_idx:])
+        test.create_dataset("images", data=np.concatenate(images, axis=0)[idxs][train_test_idx:, ...])
+        test.create_dataset("cube_poses", data=cube_poses_truncated[idxs][train_test_idx:, ...])
+        test.create_dataset("image_filenames", data=np.array(image_filenames)[idxs][train_test_idx:].tolist())
 
     env.close()
 
@@ -366,7 +368,7 @@ if __name__ == "__main__":
     # cfg = tyro.cli(GenerateDataConfig)  # TODO(ahl): once stable, switch to tyro
     cfg = GenerateDataConfig(
         env_exe_path="/home/albert/research/argus/LeapProject/leap_env.x86_64",
-        mjpc_data_path="/home/albert/research/cube_rotation/dev_ws/src/sim_residuals.json",
+        mjpc_data_path="sim_residuals.json",
         n_agents=1,
     )
     start = time.time()
