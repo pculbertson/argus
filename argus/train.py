@@ -47,7 +47,7 @@ class TrainConfig:
     learning_rate: float = 1e-3
     n_epochs: int = 100
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    max_grad_norm: float = 100.0
+    max_grad_norm: float = 1.0
 
     # validation, printing, and saving
     val_epochs: int = 1
@@ -147,7 +147,8 @@ def train(cfg: TrainConfig) -> None:
     for epoch in range(cfg.n_epochs):
         # training loop
         model.train()
-        for example in tqdm(train_dataloader, desc=f"Epoch {epoch}/{cfg.n_epochs}", total=len(train_dataloader)):
+        avg_loss_in_epoch = 0.0
+        for example in tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{cfg.n_epochs}", total=len(train_dataloader)):
             # loading data
             images = example["images"].to(cfg.device).to(torch.float32)
             cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)  # quats are (x, y, z, w)
@@ -157,6 +158,7 @@ def train(cfg: TrainConfig) -> None:
             loss = torch.mean(loss_fn(cube_pose_pred_se3, cube_pose_SE3))
             optimizer.zero_grad()
             loss.backward()
+            avg_loss_in_epoch += loss.item()
             if cfg.wandb_log:
                 wandb.log({"loss": loss.item()})
 
@@ -165,7 +167,7 @@ def train(cfg: TrainConfig) -> None:
             optimizer.step()
 
         if epoch % cfg.print_epochs == 0:
-            print(f"    Loss: {loss.item()}")
+            print(f"    Avg. Loss in Epoch: {avg_loss_in_epoch / len(train_dataloader)}")
 
         # validation loop
         if epoch % cfg.val_epochs == 0:
