@@ -118,22 +118,22 @@ def convert_mjpc_q_leap_to_unity(q_mjpc: np.ndarray) -> np.ndarray:
     """
     new_idxs = np.array(
         [
-            4,
+            4,  # mcp joint indices on the mjpc LEAP hand
             12,
             8,
-            0,  # mcp joint indices on the mjpc LEAP hand
-            5,
+            0,
+            5,  # pip joint indices on the mjpc LEAP hand
             13,
             9,
-            1,  # pip joint indices on the mjpc LEAP hand
-            6,
+            1,
+            6,  # dip joint indices on the mjpc LEAP hand
             14,
             10,
-            2,  # dip joint indices on the mjpc LEAP hand
-            7,
+            2,
+            7,  # fingertip joints
             15,
             11,
-            3,  # fingertip joints
+            3,
         ]
     )
     q_unity = q_mjpc[..., new_idxs]
@@ -209,7 +209,7 @@ def time_torch_fn(fn: Callable[[], torch.Tensor]) -> tuple[torch.Tensor, float]:
 # ######### #
 
 
-def get_pose(images: torch.Tensor, model: torch.nn.Module) -> torch.Tensor:
+def get_pose(images: torch.Tensor, model: torch.nn.Module) -> pp.LieTensor:
     """Get the pose of the cube from the images.
 
     Args:
