@@ -113,6 +113,29 @@ def convert_unity_quat_to_euler(quat: np.ndarray) -> np.ndarray:
     euler = R.from_quat(quat).as_euler("XYZ", degrees=True)
     return euler
 
+def convert_mjpc_q_leap_to_unity(q_mjpc: np.ndarray) -> np.ndarray:
+    """Converts the hand configuration from mjpc's to Unity's coordinate system.
+
+    * The mjpc convention is depth-first with finger order index, middle, ring, thumb.
+    * The Unity convention is breadth-first with finger order middle, thumb, ring, and index.
+
+    Args:
+        q_mjpc: The hand state in Mujoco's coordinate system. Shape=(..., 16).
+
+    Returns:
+        q_unity: The hand state in Unity's coordinate system. Shape=(..., 16).
+    """
+    new_idxs = np.array(
+        [
+            4, 12, 8, 0,  # mcp joint indices on the mjpc LEAP hand
+            5, 13, 9, 1,  # pip joint indices on the mjpc LEAP hand
+            6, 14, 10, 2,  # dip joint indices on the mjpc LEAP hand
+            7, 15, 11, 3,  # fingertip joints
+        ]
+    )
+    q_unity = q_mjpc[..., new_idxs]
+    return q_unity
+
 # ##### #
 # TESTS #
 # ##### #
@@ -309,7 +332,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         action[:, :7] = cam1_poses
         action[:, 7:14] = cam2_poses
         action[:, 14:21] = cube_poses_batch
-        action[:, 21:] = q_leap
+        action[:, 21:] = convert_mjpc_q_leap_to_unity(q_leap)
 
         # advancing the Unity sim and rendering out observations
         action_tuple = ActionTuple(continuous=action)
