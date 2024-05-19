@@ -47,8 +47,6 @@ class CameraCubePoseDataset(Dataset):
                     normalized between 0 and 1. There should be no alpha channel. When the images are retrieved
                     from the dataset, we flatten the shape to (n_cams * C, H, W)!
                 - cube_poses: The poses of the cube of shape (n_data, 7), (x, y, z, qw, qx, qy, qz).
-                - image_filenames: The filenames of the associated data given as tuples of length n_cams.
-                    Primarily used for debugging.
             - test
                 - same fields as `train`.
 
@@ -74,7 +72,6 @@ class CameraCubePoseDataset(Dataset):
             _cube_poses = torch.from_numpy(self.dataset["cube_poses"][()])  # original quat order is (w, x, y, z)
             self.cube_poses = pp.SE3(xyzwxyz_to_xyzxyzw_SE3(_cube_poses))  # pp expects quat order to be (x, y, z, w)
             self.images = self.dataset["images"][()]  # (n_data, n_cams, 3, H, W)
-            self.image_filenames = self.dataset["image_filenames"][()]  # list of tuples, (n_data, (n_cams,))
 
     def __len__(self) -> int:
         """Number of datapoints, i.e., (N image, cube pose) tuples."""
@@ -86,5 +83,4 @@ class CameraCubePoseDataset(Dataset):
         return {
             "images": images.to(torch.float32),
             "cube_pose": self.cube_poses[idx],
-            "image_filenames": tuple(self.image_filenames[idx]),
         }
