@@ -1,6 +1,14 @@
+import numpy as np
 import torch
 
-from argus.utils import xyzwxyz_to_xyzxyzw_SE3, xyzxyzw_to_xyzwxyz_SE3
+from argus.utils import (
+    convert_mjpc_q_leap_to_unity,
+    convert_pose_mjpc_to_unity,
+    convert_pose_unity_to_mjpc,
+    convert_unity_quat_to_euler,
+    xyzwxyz_to_xyzxyzw_SE3,
+    xyzxyzw_to_xyzwxyz_SE3,
+)
 
 
 def test_xyzwxyz_to_xyzxyzw_SE3():
@@ -27,3 +35,35 @@ def test_xyzxyzw_to_xyzwxyz_SE3():
     xyzxyzw = torch.tensor([[1, 2, 3, 0.6, 0.7, 0.8, 0.5], [4, 5, 6, 0.2, 0.3, 0.4, 0.1]])
     expected = torch.tensor([[1, 2, 3, 0.5, 0.6, 0.7, 0.8], [4, 5, 6, 0.1, 0.2, 0.3, 0.4]])
     assert torch.allclose(xyzxyzw_to_xyzwxyz_SE3(xyzxyzw), expected)
+
+
+def test_convert_pose_mjpc_to_unity() -> None:
+    """Tests the conversion from Mujoco's to Unity's coordinate system."""
+    # test rotation about x
+    pose_mjpc = np.array([[0.1, 0.2, 0.3, 0.92387953, 0.38268343, 0.0, 0.0]])  # rotate +45 about +x in mjpc
+    pose_unity = convert_pose_mjpc_to_unity(pose_mjpc)
+    euler = convert_unity_quat_to_euler(pose_unity[0, 3:])
+    assert np.allclose(pose_unity, np.array([[-0.2, 0.3, 0.1, 0.0, 0.0, -0.38268343, 0.92387953]]))
+    assert np.allclose(euler, np.array([0.0, 0.0, -45.0]))
+
+    # test rotation about y
+    pose_mjpc = np.array([[0.1, 0.2, 0.3, 0.92387953, 0.0, 0.38268343, 0.0]])  # rotate +45 about +y in mjpc
+    pose_unity = convert_pose_mjpc_to_unity(pose_mjpc)
+    euler = convert_unity_quat_to_euler(pose_unity[0, 3:])
+    assert np.allclose(pose_unity, np.array([[-0.2, 0.3, 0.1, 0.38268343, 0.0, 0.0, 0.92387953]]))
+    assert np.allclose(euler, np.array([45.0, 0.0, 0.0]))
+
+    # test rotation about z
+    pose_mjpc = np.array([[0.1, 0.2, 0.3, 0.92387953, 0.0, 0.0, 0.38268343]])  # rotate +45 about +z in mjpc
+    pose_unity = convert_pose_mjpc_to_unity(pose_mjpc)
+    euler = convert_unity_quat_to_euler(pose_unity[0, 3:])
+    assert np.allclose(pose_unity, np.array([[-0.2, 0.3, 0.1, 0.0, -0.38268343, 0.0, 0.92387953]]))
+    assert np.allclose(euler, np.array([0.0, -45.0, 0.0]))
+
+
+def test_convert_pose_unity_to_mjpc() -> None:
+    """Tests the conversion from Unity's to Mujoco's coordinate system."""
+    # test by converting a pose from mjpc to unity and back to mjpc
+    pose_mjpc = np.random.rand(2, 7)  # implicitly tests batching
+    pose_mjpc[..., 3:] /= np.linalg.norm(pose_mjpc[..., 3:], axis=-1, keepdims=True)
+    assert np.allclose(pose_mjpc, convert_pose_unity_to_mjpc(convert_pose_mjpc_to_unity(pose_mjpc)))
