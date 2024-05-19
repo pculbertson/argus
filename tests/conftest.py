@@ -14,10 +14,8 @@ def dummy_data_path(tmp_path_factory) -> str:
     def create_dataset(group, n_data):
         images = np.random.rand(n_data, 2, 3, 376, 672)  # uniform on [0, 1]
         cube_poses = xyzxyzw_to_xyzwxyz_SE3(pp.randn_SE3(n_data)).numpy()  # (x, y, z, qw, qx, qy, qz)
-        image_filenames = [(f"img_{i}a_test.png", f"img_{i}b_test.png") for i in range(n_data)]
         group.create_dataset("images", data=images)
         group.create_dataset("cube_poses", data=cube_poses)
-        group.create_dataset("image_filenames", data=image_filenames)
 
     dummy_file = tmp_path_factory.mktemp("tmp") / "dummy_dataset.hdf5"
     with h5py.File(dummy_file, "w") as f:

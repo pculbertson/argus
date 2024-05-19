@@ -11,11 +11,9 @@ def run_assertions(dataset, expected_len) -> None:
         len(dataset) == expected_len
     ), f"The length of the dataset is incorrect! Expected {expected_len}, got {len(dataset)}"
     example = dataset[0]
-    assert set(example.keys()) == {"images", "cube_pose", "image_filenames"}, "The keys of the example are incorrect!"
+    assert set(example.keys()) == {"images", "cube_pose"}, "The keys of the example are incorrect!"
     assert example["images"].shape == (2 * 3, 376, 672), "The shape of the images is incorrect!"
     assert example["cube_pose"].shape == (7,), "The shape of the cube poses is incorrect!"
-    assert len(example["image_filenames"]) == 2, "The image filenames should be length 2!"
-    assert isinstance(example["image_filenames"], tuple), "The image filenames should be a tuple!"
 
 
 # ##### #
