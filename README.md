@@ -7,7 +7,11 @@ A vision-based pose estimator for the in-hand manipulation hardware setup in the
 2. Manage the `cudatoolkit` version and `python` dependencies using `conda` by running the following
 ```
 conda env create --name <your_env_name> --file=environment.yml
-pip install -e .[dev]  # use [dev] for dev tooling and testing - else, don't need it
+
+# pick the install command that is most relevant to you!
+pip install -e .  # if you don't need unity or dev dependencies
+pip install -e .[unity]  # installs ml-agents, forces numpy and scipy to be old
+pip install -e .[dev]  # use [dev] for dev tooling and testing + unity - else, don't need it
 ```
 3. If you installed the dev dependencies, activate the pre-commit checks with
     ```
