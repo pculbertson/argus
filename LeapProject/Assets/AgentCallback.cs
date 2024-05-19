@@ -57,10 +57,21 @@ public class AgentCallback : Agent {
         cube.transform.rotation = new Quaternion(quat_cube[0], quat_cube[1], quat_cube[2], quat_cube[3]);
 
         // set the hand states
+        // WARNING: the order of the hand joints is breadth-first in the finger order middle, thumb, ring, index!
+        // For instance, the first 4 joints are the base joints of the middle, thumb, ring, and index fingers. Then,
+        // the next 4 joints are the medial joints in the same order, and so on.
         hand.SetJointPositions(actionList.GetRange(21, rotationalJoints)); // Set joint positions
 
         // concluding
         SetReward(1f); // arbitrary unused reward
         EndEpisode();  // let each episode be 1 action for simplicity
+    }
+
+    public override void Heuristic(in ActionBuffers actionsOut) {
+        // heuristic used entirely for debugging
+        var continuousActions = actionsOut.ContinuousActions;
+        for (int ii = 0; ii < continuousActions.Length; ii++) {
+            continuousActions[ii] = Random.Range(-0.3f, 0.3f);
+        }
     }
 }
