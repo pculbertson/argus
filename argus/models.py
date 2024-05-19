@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 import torch
@@ -31,10 +32,17 @@ class NCameraCNN(nn.Module):
     the model without error.
     """
 
-    def __init__(self, cfg: NCameraCNNConfig) -> None:
-        """Initialize the CNN."""
+    def __init__(self, cfg: Optional[NCameraCNNConfig] = None) -> None:
+        """Initialize the CNN.
+
+        Args:
+            cfg: The configuration for the model. If None, the default configuration is used.
+        """
         super().__init__()
         self.resnet = models.resnet18(weights="DEFAULT")  # finetune a pretrained ResNet-18
+
+        if cfg is None:
+            cfg = NCameraCNNConfig()
         self.num_channels = 3 * cfg.n_cams  # RGB-only for each cam, all channels concatenated
         self.H = cfg.H
         self.W = cfg.W

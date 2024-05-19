@@ -161,6 +161,7 @@ cython_debug/
 
 # data
 *.hdf5
+outputs
 
 # wandb
 wandb/
