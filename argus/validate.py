@@ -136,7 +136,7 @@ def validate(cfg: ValConfig) -> None:
 
 
 if __name__ == "__main__":
-    model_path = ROOT + "/outputs/models/0di7f7b0.pth"
+    model_path = ROOT + "/outputs/models/f2bzobdo.pth"
     dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/cube_unity_data.hdf5")
     cfg = ValConfig(model_path, dataset_cfg)
     validate(cfg)
