@@ -68,21 +68,20 @@ class TrainConfig:
         assert isinstance(self.save_dir, str)
 
 
-def geometric_loss_fn(pred: torch.Tensor, target: pp.LieTensor) -> torch.Tensor:
+def geometric_loss_fn(pred: pp.LieTensor, target: pp.LieTensor) -> torch.Tensor:
     """The geometric loss function.
 
-    The model predictions are in se(3), so they are 6-vectors that must be cast to se3 objects then exponentiated in
-    order to compare with the targets, which are cube poses in SE(3). Finally, the loss is an L2 loss taken in the
-    tangent space.
+    The model predictions are in SE(3), but the loss is an L2 loss taken in the tangent space. The quat representation
+    of this is (x, y, z, w).
 
     Args:
-        pred: The predicted poses in se(3) of shape (B, 6).
+        pred: The predicted poses in SE(3) of shape (B, 7).
         target: The target poses in SE(3) of shape (B, 7).
 
     Returns:
         losses: The losses of shape (B,).
     """
-    return torch.sum((pp.se3(pred).Exp() @ target.Inv()).Log() ** 2, axis=-1)
+    return torch.sum((pred @ target.Inv()).Log() ** 2, axis=-1)
 
 
 def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCameraCNN, Optimizer, ReduceLROnPlateau]:
@@ -92,7 +91,7 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
     train_dataloader = DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True)
 
     val_dataset = CameraCubePoseDataset(cfg.dataset_config, train=False)
-    val_dataloader = DataLoader(val_dataset, batch_size=cfg.batch_size, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=cfg.batch_size, shuffle=False)
 
     # model
     model = NCameraCNN(cfg.model_config).to(cfg.device)
@@ -100,16 +99,34 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
         model = torch.compile(model, mode="reduce-overhead")  # compiled model
         print("Compiling the model...")
         model(
-            torch.rand(
-                (cfg.batch_size, cfg.model_config.n_cams * 3, cfg.model_config.W, cfg.model_config.H),
+            torch.zeros(
+                (cfg.batch_size, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W),
                 device=cfg.device,
             )
-        )  # warming up the optimized model
+        )  # warming up the optimized model by running dummy inputs
+
+        # doing the same with the leftover size of the train/val datasets
+        train_leftover = len(train_dataset) % cfg.batch_size
+        val_leftover = len(val_dataset) % cfg.batch_size
+        if train_leftover != 0:
+            model(
+                torch.zeros(
+                    (train_leftover, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W),
+                    device=cfg.device,
+                )
+            )
+        if val_leftover != 0:
+            model(
+                torch.zeros(
+                    (val_leftover, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W),
+                    device=cfg.device,
+                )
+            )
         print("Model compiled!")
 
     # optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate)
-    scheduler = ReduceLROnPlateau(optimizer, "min", patience=5, factor=0.5, verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, "min", patience=5, factor=0.5)
 
     # loss function
     loss_fn = geometric_loss_fn
@@ -128,13 +145,13 @@ def train(cfg: TrainConfig) -> None:
     for epoch in range(cfg.n_epochs):
         # training loop
         model.train()
-        for example in tqdm(train_dataloader, desc=f"Epoch {epoch}", total=len(train_dataloader)):
+        for example in tqdm(train_dataloader, desc=f"Epoch {epoch}/{cfg.n_epochs}", total=len(train_dataloader)):
             # loading data
             images = example["images"].to(cfg.device).to(torch.float32)
-            cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)
+            cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)  # quats are (x, y, z, w)
 
             # forward pass
-            cube_pose_pred_se3 = model(images)
+            cube_pose_pred_se3 = model(images)  # therefore, the predicted quats are (x, y, z, w)
             loss = torch.mean(loss_fn(cube_pose_pred_se3, cube_pose_SE3))
             optimizer.zero_grad()
             loss.backward()
@@ -146,14 +163,14 @@ def train(cfg: TrainConfig) -> None:
             optimizer.step()
 
         if epoch % cfg.print_epochs == 0:
-            print(f"Loss: {loss.item()}")
+            print(f"    Loss: {loss.item()}")
 
         # validation loop
         if epoch % cfg.val_epochs == 0:
             model.eval()
             with torch.no_grad():
                 val_loss = 0
-                for example in tqdm(val_dataloader, desc="Validation", total=len(val_dataloader)):
+                for example in val_dataloader:
                     images = example["images"].to(cfg.device).to(torch.float32)
                     cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)
                     cube_pose_pred_se3 = model(images)
@@ -163,7 +180,7 @@ def train(cfg: TrainConfig) -> None:
                 val_loss /= len(val_dataloader)
                 if cfg.wandb_log:
                     wandb.log({"val_loss": val_loss})
-                print(f"Validation loss: {val_loss}")
+                print(f"    Validation loss: {val_loss}")
 
                 # update learning rate based on val loss
                 scheduler.step(val_loss)

@@ -18,13 +18,13 @@ def test_wandb() -> None:
 def test_geometric_loss_fn() -> None:
     """Tests the geometric loss function."""
     # unbatched
-    pred = torch.randn(6)
+    pred = pp.randn_SE3()
     target = pp.randn_SE3()
     loss = geometric_loss_fn(pred, target)
     assert loss.shape == torch.Size([])
 
     # batched
-    pred = torch.randn(32, 6)
+    pred = pp.randn_SE3(32)
     target = pp.randn_SE3(32)
     loss = geometric_loss_fn(pred, target)
     assert loss.shape == torch.Size([32])

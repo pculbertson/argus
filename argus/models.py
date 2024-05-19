@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import numpy as np
+import pypose as pp
 import torch
 import torch.nn as nn
 import torchvision.models as models
@@ -43,15 +44,14 @@ class NCameraCNN(nn.Module):
         self.resnet.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 6)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> pp.LieTensor:
         """Forward pass through the CNN.
 
         Args:
             x: The input images of shape (B, 3 * n_cams, W, H), concatenated along the channel dimension.
 
         Returns:
-            pose: The predicted pose of the cube in the scene expressed in se(3). To get the pose in SE(3), apply the
-                exponential map to it, e.g., `pose.Exp()`.
+            pose: The predicted pose of the cube in the scene expressed as an SE(3) LieTensor.
         """
         assert len(x.shape) == 4, "The input images must be of shape (B, C, W, H)! If B=1, add a dummy dimension."
-        return self.resnet(x)
+        return pp.se3(self.resnet(x)).Exp()
