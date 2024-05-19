@@ -43,7 +43,7 @@ class TrainConfig:
     """
 
     # training parameters
-    batch_size: int = 128
+    batch_size: int = 64
     learning_rate: float = 1e-3
     n_epochs: int = 100
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
@@ -57,8 +57,10 @@ class TrainConfig:
 
     # model and dataset parameters
     model_config: NCameraCNNConfig = NCameraCNNConfig()
-    dataset_config: CameraCubePoseDatasetConfig = CameraCubePoseDatasetConfig("/")  # dummy path, must be overwritten!
-    compile_model: bool = True
+    dataset_config: CameraCubePoseDatasetConfig = CameraCubePoseDatasetConfig(
+        ROOT + "/outputs/data/cube_unity_data.hdf5"
+    )
+    compile_model: bool = False  # WARNING: compiling the model during training makes it hard to load later
 
     # wandb
     wandb_project: str = "argus-estimator"

@@ -15,6 +15,7 @@ from PIL import Image
 from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
 
+from argus import ROOT
 from argus.utils import convert_mjpc_q_leap_to_unity, convert_pose_mjpc_to_unity, convert_pose_unity_to_mjpc
 
 
@@ -98,7 +99,7 @@ class GenerateDataConfig:
     env_exe_path: str
     mjpc_data_path: str
     n_agents: int = 1
-    output_data_path: str = "cube_unity_data.hdf5"
+    output_data_path: str = ROOT + "/outputs/data/cube_unity_data.hdf5"
     cam1_nominal: Optional[np.ndarray] = None
     cam2_nominal: Optional[np.ndarray] = None
     bounds_trans: float = 0.01
