@@ -3,8 +3,8 @@ from pathlib import Path
 import pypose as pp
 import pytest
 import torch
-import wandb
 
+import wandb
 from argus.data import CameraCubePoseDatasetConfig
 from argus.models import NCameraCNNConfig
 from argus.train import TrainConfig, geometric_loss_fn, train
@@ -18,13 +18,13 @@ def test_wandb() -> None:
 def test_geometric_loss_fn() -> None:
     """Tests the geometric loss function."""
     # unbatched
-    pred = pp.randn_SE3()
+    pred = torch.randn(6)
     target = pp.randn_SE3()
     loss = geometric_loss_fn(pred, target)
     assert loss.shape == torch.Size([])
 
     # batched
-    pred = pp.randn_SE3(32)
+    pred = torch.randn(32, 6)
     target = pp.randn_SE3(32)
     loss = geometric_loss_fn(pred, target)
     assert loss.shape == torch.Size([32])

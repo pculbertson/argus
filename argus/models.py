@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 
 import numpy as np
-import pypose as pp
 import torch
 import torch.nn as nn
 import torchvision.models as models
@@ -27,6 +26,9 @@ class NCameraCNN(nn.Module):
 
     The inputs are N images of dimension HxW and the outputs are the pose of the cube which is located in the scene.
     In particular, the outputs are 6d vectors in se(3) which must be sent to SE(3) via the exponential map.
+
+    The main reason for passing a 6-vector instead of a pypose SE(3) object is because then we can torch compile
+    the model without error.
     """
 
     def __init__(self, cfg: NCameraCNNConfig) -> None:
@@ -44,14 +46,15 @@ class NCameraCNN(nn.Module):
         self.resnet.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 6)
 
-    def forward(self, x: torch.Tensor) -> pp.LieTensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the CNN.
 
         Args:
             x: The input images of shape (B, 3 * n_cams, W, H), concatenated along the channel dimension.
 
         Returns:
-            pose: The predicted pose of the cube in the scene expressed as an SE(3) LieTensor.
+            pose: The predicted pose of the cube in the scene expressed in se(3). To get the pose in SE(3), apply the
+                exponential map to it, e.g., `pose.Exp()`.
         """
         assert len(x.shape) == 4, "The input images must be of shape (B, C, W, H)! If B=1, add a dummy dimension."
-        return pp.se3(self.resnet(x)).Exp()
+        return self.resnet(x)

@@ -7,13 +7,13 @@ import pypose as pp
 import torch
 import torch.nn as nn
 import tyro
-import wandb
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from wandb.util import generate_id
 
+import wandb
 from argus.data import CameraCubePoseDataset, CameraCubePoseDatasetConfig
 from argus.models import NCameraCNN, NCameraCNNConfig
 
@@ -68,20 +68,21 @@ class TrainConfig:
         assert isinstance(self.save_dir, str)
 
 
-def geometric_loss_fn(pred: pp.LieTensor, target: pp.LieTensor) -> torch.Tensor:
+def geometric_loss_fn(pred: torch.Tensor, target: pp.LieTensor) -> torch.Tensor:
     """The geometric loss function.
 
-    The model predictions are in SE(3), but the loss is an L2 loss taken in the tangent space. The quat representation
-    of this is (x, y, z, w).
+    The model predictions are in se(3), so they are 6-vectors that must be cast to se3 objects then exponentiated in
+    order to compare with the targets, which are cube poses in SE(3). Finally, the loss is an L2 loss taken in the
+    tangent space.
 
     Args:
-        pred: The predicted poses in SE(3) of shape (B, 7).
+        pred: The predicted poses in se(3) of shape (B, 6).
         target: The target poses in SE(3) of shape (B, 7).
 
     Returns:
         losses: The losses of shape (B,).
     """
-    return torch.sum((pred @ target.Inv()).Log() ** 2, axis=-1)
+    return torch.sum((pp.se3(pred).Exp() @ target.Inv()).Log() ** 2, axis=-1)
 
 
 def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCameraCNN, Optimizer, ReduceLROnPlateau]:
