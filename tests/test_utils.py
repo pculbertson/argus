@@ -1,4 +1,6 @@
 import numpy as np
+import pypose as pp
+import pytest
 import torch
 
 from argus.utils import (
@@ -36,6 +38,13 @@ def test_xyzxyzw_to_xyzwxyz_SE3():
     xyzxyzw = torch.tensor([[1, 2, 3, 0.6, 0.7, 0.8, 0.5], [4, 5, 6, 0.2, 0.3, 0.4, 0.1]])
     expected = torch.tensor([[1, 2, 3, 0.5, 0.6, 0.7, 0.8], [4, 5, 6, 0.1, 0.2, 0.3, 0.4]])
     assert torch.allclose(xyzxyzw_to_xyzwxyz_SE3(xyzxyzw), expected)
+
+    # with pypose
+    xyzxyzw = pp.randn_SE3(2)
+    try:
+        assert torch.allclose(xyzxyzw_to_xyzwxyz_SE3(xyzwxyz_to_xyzxyzw_SE3(xyzxyzw)), xyzxyzw)
+    except Exception:
+        pytest.fail("The conversion failed on a pypose SE3 object!")
 
 
 def test_convert_pose_mjpc_to_unity() -> None:
