@@ -14,6 +14,7 @@ from tqdm import tqdm
 from wandb.util import generate_id
 
 import wandb
+from argus import ROOT
 from argus.data import CameraCubePoseDataset, CameraCubePoseDatasetConfig
 from argus.models import NCameraCNN, NCameraCNNConfig
 
@@ -52,7 +53,7 @@ class TrainConfig:
     val_epochs: int = 1
     print_epochs: int = 1
     save_epochs: int = 5
-    save_dir: str = "outputs/models"
+    save_dir: str = ROOT + "/outputs/models"
 
     # model and dataset parameters
     model_config: NCameraCNNConfig = NCameraCNNConfig()
@@ -190,7 +191,7 @@ def train(cfg: TrainConfig) -> None:
             if cfg.save_dir is not None:
                 save_dir = Path(cfg.save_dir)
             else:
-                save_dir = Path("outputs/models")
+                save_dir = Path(ROOT + "/outputs/models")
             os.makedirs(save_dir, exist_ok=True)
             torch.save(model.state_dict(), save_dir / f"{wandb_id}.pth")
 
