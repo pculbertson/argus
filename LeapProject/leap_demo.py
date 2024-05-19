@@ -304,7 +304,6 @@ def generate_data(cfg: GenerateDataConfig) -> None:
     # generating data
     env, behavior_name, expected_action_size = unity_setup(env_exe_path, n_agents=n_agents)
     images = []
-    image_filenames = []
 
     print("Rendering image data...")
     for episode in tqdm(range(n_episodes), desc="Episodes"):
@@ -348,7 +347,6 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         images.append(np.concatenate([cam1_obs, cam2_obs], axis=1).reshape(n_agents, 6, 376, 672))
         for i in range(n_agents):
             img_idx = episode * n_agents + i
-            image_filenames.append((f"img_{img_idx}a.png", f"img_{img_idx}b.png"))
 
             # debug - this saves some images out so you can check what they look like
             #########################################################################
@@ -378,12 +376,10 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         train = f.create_group("train")
         train.create_dataset("images", data=np.concatenate(images, axis=0)[idxs][:train_test_idx, ...])
         train.create_dataset("cube_poses", data=cube_poses_truncated[idxs][:train_test_idx, ...])
-        train.create_dataset("image_filenames", data=np.array(image_filenames)[idxs][:train_test_idx].tolist())
 
         test = f.create_group("test")
         test.create_dataset("images", data=np.concatenate(images, axis=0)[idxs][train_test_idx:, ...])
         test.create_dataset("cube_poses", data=cube_poses_truncated[idxs][train_test_idx:, ...])
-        test.create_dataset("image_filenames", data=np.array(image_filenames)[idxs][train_test_idx:].tolist())
 
     env.close()
 
