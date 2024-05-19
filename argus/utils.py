@@ -1,6 +1,7 @@
 from typing import Callable
 
 import numpy as np
+import pypose as pp
 import torch
 from scipy.spatial.transform import Rotation as R
 
@@ -201,3 +202,21 @@ def time_torch_fn(fn: Callable[[], torch.Tensor]) -> tuple[torch.Tensor, float]:
     end.record()
     torch.cuda.synchronize()
     return result, start.elapsed_time(end) / 1000
+
+
+# ######### #
+# INFERENCE #
+# ######### #
+
+
+def get_pose(images: torch.Tensor, model: torch.nn.Module) -> torch.Tensor:
+    """Get the pose of the cube from the images.
+
+    Args:
+        images: The images of shape (B, 3 * n_cams, W, H), concatenated along the channel dimension.
+        model: The model to use.
+
+    Returns:
+        pose: The predicted pose of the cube expressed as a 7d pose. The quaternion elements are in (x, y, z, w) order.
+    """
+    return pp.se3(model(images)).Exp()
