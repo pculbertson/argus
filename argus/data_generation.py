@@ -87,8 +87,8 @@ class GenerateDataConfig:
     Fields:
         env_exe_path: Path to the Unity environment executable.
         mjpc_data_path: Path to the bagged mjpc sim data.
-        n_agents: Number of agents in the environment.
         output_data_path: Path to save the generated data.
+        n_agents: Number of agents in the environment.
         cam1_nominal: Nominal camera pose for camera 1. The last 4 quat coords are xyzw convention. Shape=(7,).
         cam2_nominal: Nominal camera pose for camera 2. The last 4 quat coords are xyzw convention. Shape=(7,).
         bounds_trans: Bounds of the uniform translation perturbations in meters.
@@ -97,9 +97,9 @@ class GenerateDataConfig:
     """
 
     env_exe_path: str
-    mjpc_data_path: str
-    n_agents: int = 1
+    mjpc_data_path: str = ROOT + "/outputs/data/sim_residuals.json"
     output_data_path: str = ROOT + "/outputs/data/cube_unity_data.hdf5"
+    n_agents: int = 1
     cam1_nominal: Optional[np.ndarray] = None
     cam2_nominal: Optional[np.ndarray] = None
     bounds_trans: float = 0.01
