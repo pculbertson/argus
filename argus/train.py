@@ -25,6 +25,10 @@ torch.set_float32_matmul_precision("high")
 class TrainConfig:
     """Configuration for training.
 
+    For all path fields, you can either specify an absolute path, a relative path (with respect to where you are
+    currently calling the data generation function), or a local path RELATIVE TO THE ROOT OF THE PACKAGE IN YOUR SYSTEM!
+    For instance, if you pass "example_dir" to `save_dir`, the model will be saved under /path/to/argus/example_dir.
+
     Fields:
         batch_size: The batch size.
         learning_rate: The learning rate.
@@ -74,6 +78,11 @@ class TrainConfig:
     def __post_init__(self) -> None:
         """Assert that save_dir is a string."""
         assert isinstance(self.save_dir, str)
+        if not os.path.exists(self.save_dir):  # absolute path
+            if os.path.exists(ROOT + "/" + self.save_dir):
+                self.save_dir = ROOT + "/" + self.save_dir
+            else:
+                raise FileNotFoundError(f"The specified path does not exist: {self.save_dir}!")
 
 
 def geometric_loss_fn(pred: torch.Tensor, target: pp.LieTensor) -> torch.Tensor:

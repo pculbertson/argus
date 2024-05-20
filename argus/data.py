@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -9,6 +10,7 @@ import pypose as pp
 import torch
 from torch.utils.data import Dataset
 
+from argus import ROOT
 from argus.utils import xyzwxyz_to_xyzxyzw_SE3
 
 
@@ -16,9 +18,13 @@ from argus.utils import xyzwxyz_to_xyzxyzw_SE3
 class CameraCubePoseDatasetConfig:
     """Configuration for the CameraCubePoseDataset.
 
+    For all path fields, you can either specify an absolute path, a relative path (with respect to where you are
+    currently calling the data generation function), or a local path RELATIVE TO THE ROOT OF THE PACKAGE IN YOUR SYSTEM!
+    For instance, if you pass "example_dir/data.hdf5" to `dataset_path`, the data will be loaded from
+    /path/to/argus/example_dir/datda.hdf5.
+
     Args:
         dataset_path: The path to the dataset. Must lead to an hdf5 file.
-        train: Whether to load the training or test set.
     """
 
     dataset_path: Optional[str] = None
@@ -26,7 +32,13 @@ class CameraCubePoseDatasetConfig:
     def __post_init__(self) -> None:
         """Checks that the dataset path is set and that it is a string for wandb serialization."""
         assert self.dataset_path is not None, "The dataset path must be set!"
+        assert Path(self.dataset_path).suffix == ".hdf5", "The dataset must be stored as an hdf5 file!"
         assert isinstance(self.dataset_path, str), "The dataset path must be a str!"
+        if not os.path.exists(self.dataset_path):  # absolute path
+            if os.path.exists(ROOT + "/" + self.dataset_path):
+                self.dataset_path = ROOT + "/" + self.dataset_path
+            else:
+                raise FileNotFoundError(f"The specified path does not exist: {self.dataset_path}!")
 
 
 class CameraCubePoseDataset(Dataset):
@@ -55,8 +67,6 @@ class CameraCubePoseDataset(Dataset):
             train: Whether to load the training or test set. Default=True.
         """
         dataset_path = cfg.dataset_path
-
-        assert Path(dataset_path).suffix == ".hdf5", "The dataset must be stored as an hdf5 file!"
         with h5py.File(dataset_path, "r") as f:
             if train:
                 self.dataset = f["train"]

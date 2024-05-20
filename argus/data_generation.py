@@ -84,6 +84,11 @@ def generate_random_camera_poses(
 class GenerateDataConfig:
     """The config for generating the data.
 
+    For all path fields, you can either specify an absolute path, a relative path (with respect to where you are
+    currently calling the data generation function), or a local path RELATIVE TO THE ROOT OF THE PACKAGE IN YOUR SYSTEM!
+    For instance, if you pass "example_dir/data.hdf5" to `output_data_path`, it will be saved under
+    /path/to/argus/example_dir/data.hdf5.
+
     Fields:
         env_exe_path: Path to the Unity environment executable.
         mjpc_data_path: Path to the bagged mjpc sim data.
@@ -110,6 +115,22 @@ class GenerateDataConfig:
 
     def __post_init__(self):
         """Assigning defaults and doing sanity checks."""
+        # check both local and absolute paths
+        if not os.path.exists(self.env_exe_path):  # absolute path
+            if os.path.exists(ROOT + "/" + self.env_exe_path):
+                self.env_exe_path = ROOT + "/" + self.env_exe_path
+            else:
+                raise FileNotFoundError(f"The specified path does not exist: {self.env_exe_path}!")
+        if not os.path.exists(self.mjpc_data_path):
+            if os.path.exists(ROOT + "/" + self.mjpc_data_path):
+                self.mjpc_data_path = ROOT + "/" + self.mjpc_data_path
+            else:
+                raise FileNotFoundError(f"The specified path does not exist: {self.mjpc_data_path}!")
+        assert Path(self.output_data_path).suffix == ".hdf5", "The data path must have the .hdf5 extension!"
+        assert Path(self.mjpc_data_path).suffix == ".json", "The mjpc data must be contained in a json file!"
+        assert Path(self.env_exe_path).suffix in [".x86_64", ".app"], "The Unity environment must be an executable!"
+
+        # setting nominal cam positions
         if self.cam1_nominal is None:
             self.cam1_nominal = np.array(
                 [
@@ -134,13 +155,8 @@ class GenerateDataConfig:
                     -0.14644661,
                 ]
             )
-        if not os.path.exists(self.env_exe_path):
-            raise FileNotFoundError(f"The specified path does not exist: {self.env_exe_path}!")
-        if not os.path.exists(self.mjpc_data_path):
-            raise FileNotFoundError(f"The specified path does not exist: {self.mjpc_data_path}!")
-        assert Path(self.output_data_path).suffix == ".hdf5", "The data path must have the .hdf5 extension!"
-        assert Path(self.mjpc_data_path).suffix == ".json", "The mjpc data must be contained in a json file!"
-        assert Path(self.env_exe_path).suffix in [".x86_64", ".app"], "The Unity environment must be an executable!"
+
+        # checking on the rgb range parameter
         assert isinstance(self.cam_rgb_range, tuple), "cam_rgb_range must be a 2-tuple!"
         assert len(self.cam_rgb_range) == 2, "cam_rgb_range must be a 2-tuple!"
         assert 0 <= self.cam_rgb_range[0] < self.cam_rgb_range[1] <= 1, "cam_rgb_range must be a subset of [0, 1]!"
