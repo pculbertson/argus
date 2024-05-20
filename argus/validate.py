@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from argus import ROOT
-from argus.data import CameraCubePoseDataset, CameraCubePoseDatasetConfig
+from argus.data import Augmentation, AugmentationConfig, CameraCubePoseDataset, CameraCubePoseDatasetConfig
 from argus.models import NCameraCNN, NCameraCNNConfig
 from argus.train import geometric_loss_fn
 
@@ -50,15 +50,17 @@ class ValConfig:
         model_path: The path to the model to validate.
         model_config: The configuration for the model.
         dataset_config: The configuration for the dataset.
+        aug_config: The configuration for the augmentation.
         use_train: Whether to use the training set.
         device: The device to run on.
     """
 
     model_path: str
+    model_config: Optional[NCameraCNNConfig] = None
     dataset_config: CameraCubePoseDatasetConfig = CameraCubePoseDatasetConfig(
         dataset_path=ROOT + "/outputs/data/cube_unity_data.hdf5"
     )
-    model_config: Optional[NCameraCNNConfig] = None
+    aug_config: AugmentationConfig = AugmentationConfig()
     use_train: bool = False
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -74,6 +76,7 @@ def validate(cfg: ValConfig) -> None:
     model_path = cfg.model_path
     model_config = cfg.model_config
     dataset_cfg = cfg.dataset_config
+    aug_cfg = cfg.aug_config
     use_train = cfg.use_train
     device = cfg.device
 
@@ -87,6 +90,10 @@ def validate(cfg: ValConfig) -> None:
     model.to(device)
     model.eval()
 
+    # loading augmentation
+    augmentation = Augmentation(aug_cfg)
+    augmentation.to(device)
+
     # dataloader
     dataset = CameraCubePoseDataset(dataset_cfg, train=use_train)
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
@@ -96,6 +103,8 @@ def validate(cfg: ValConfig) -> None:
         # forward pass
         images = example["images"].to(device).to(torch.float32)
         cube_pose_true_SE3 = example["cube_pose"].to(device).to(torch.float32)
+        _images = augmentation(images.reshape(-1, 3, model_config.H, model_config.W))
+        images = _images.reshape(-1, model_config.n_cams * 3, model_config.H, model_config.W)
         cube_pose_pred_se3 = model(images)
         loss = torch.mean(geometric_loss_fn(cube_pose_pred_se3, cube_pose_true_SE3))
 

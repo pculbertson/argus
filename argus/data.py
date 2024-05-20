@@ -84,3 +84,70 @@ class CameraCubePoseDataset(Dataset):
             "images": images.to(torch.float32),
             "cube_pose": self.cube_poses[idx],
         }
+
+
+@dataclass(frozen=True)
+class AugmentationConfig:
+    """Configuration for data augmentation."""
+
+    # color jiggle
+    brightness: float = 0.2
+    contrast: float = 0.4
+    saturation: float = 0.4
+    hue: float = 0.025
+
+    # flags
+    color_jiggle: bool = True
+    planckian_jitter: bool = True
+    random_erasing: bool = True
+    blur: bool = True
+
+
+class Augmentation(torch.nn.Module):
+    """Data augmentation module for the images and pixel coordinates."""
+
+    def __init__(self, cfg: AugmentationConfig, train: bool = True) -> None:
+        """Initialize the augmentations."""
+        super().__init__()
+        self.cfg = cfg
+        self.train = train
+        self.transforms = []
+
+        # constructing the augmentation sequence
+        if cfg.random_erasing:
+            self.transforms.append(
+                kornia.augmentation.RandomErasing(p=0.5, scale=(0.02, 0.1), ratio=(2.0, 3.0), same_on_batch=False)
+            )
+            self.transforms.append(
+                kornia.augmentation.RandomErasing(
+                    p=0.5,
+                    scale=(0.02, 0.05),
+                    ratio=(0.8, 1.2),
+                    same_on_batch=False,
+                    value=1,
+                )
+            )
+
+        if cfg.planckian_jitter:
+            self.transforms.append(kornia.augmentation.RandomPlanckianJitter(mode="blackbody"))
+
+        if cfg.color_jiggle:
+            self.transforms.append(
+                kornia.augmentation.ColorJiggle(
+                    brightness=cfg.brightness,
+                    contrast=cfg.contrast,
+                    saturation=cfg.saturation,
+                    hue=cfg.hue,
+                )
+            )
+
+        if cfg.blur:
+            self.transforms.append(kornia.augmentation.RandomGaussianBlur((5, 5), (3.0, 8.0), p=0.5))
+
+        self.transform_op = kornia.augmentation.AugmentationSequential(*self.transforms, data_keys=["image"])
+
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
+        """Applies the augmentations to the images."""
+        if len(self.transforms) > 0 and self.train:
+            images = self.transform_op(images)
+        return images

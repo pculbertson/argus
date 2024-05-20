@@ -15,7 +15,7 @@ from tqdm import tqdm
 from wandb.util import generate_id
 
 from argus import ROOT
-from argus.data import CameraCubePoseDataset, CameraCubePoseDatasetConfig
+from argus.data import Augmentation, AugmentationConfig, CameraCubePoseDataset, CameraCubePoseDatasetConfig
 from argus.models import NCameraCNN, NCameraCNNConfig
 
 torch.set_float32_matmul_precision("high")
@@ -64,6 +64,9 @@ class TrainConfig:
     )
     compile_model: bool = False  # WARNING: compiling the model during training makes it hard to load later
 
+    # data augmentation
+    augmentation_config: AugmentationConfig = AugmentationConfig()
+
     # wandb
     wandb_project: str = "argus-estimator"
     wandb_log: bool = True
@@ -96,12 +99,14 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
     torch.manual_seed(cfg.random_seed)
     np.random.seed(cfg.random_seed)
 
-    # dataloaders
+    # dataloaders and augmentations
     train_dataset = CameraCubePoseDataset(cfg.dataset_config, train=True)
     train_dataloader = DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True)
+    train_augmentation = Augmentation(cfg.augmentation_config, train=True).to(cfg.device)
 
     val_dataset = CameraCubePoseDataset(cfg.dataset_config, train=False)
     val_dataloader = DataLoader(val_dataset, batch_size=cfg.batch_size, shuffle=False)
+    val_augmentation = Augmentation(cfg.augmentation_config, train=False).to(cfg.device)
 
     # model
     model = NCameraCNN(cfg.model_config).to(cfg.device)
@@ -146,12 +151,33 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
     if cfg.wandb_log:
         wandb.init(project=cfg.wandb_project, config=cfg, id=wandb_id, resume="allow")
 
-    return train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn, wandb_id
+    return (
+        train_dataloader,
+        train_augmentation,
+        val_dataloader,
+        val_augmentation,
+        model,
+        optimizer,
+        scheduler,
+        loss_fn,
+        wandb_id,
+    )
 
 
 def train(cfg: TrainConfig) -> None:
     """Main training loop."""
-    train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn, wandb_id = initialize_training(cfg)
+    (
+        train_dataloader,
+        train_augmentation,
+        val_dataloader,
+        val_augmentation,
+        model,
+        optimizer,
+        scheduler,
+        loss_fn,
+        wandb_id,
+    ) = initialize_training(cfg)
+
     for epoch in range(cfg.n_epochs):
         # training loop
         model.train()
@@ -160,6 +186,8 @@ def train(cfg: TrainConfig) -> None:
             # loading data
             images = example["images"].to(cfg.device).to(torch.float32)
             cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)  # quats are (x, y, z, w)
+            _images = train_augmentation(images.reshape(-1, 3, cfg.model_config.H, cfg.model_config.W))
+            images = _images.reshape(-1, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W)
 
             # forward pass
             cube_pose_pred_se3 = model(images)  # therefore, the predicted quats are (x, y, z, w)
@@ -185,6 +213,8 @@ def train(cfg: TrainConfig) -> None:
                 for example in val_dataloader:
                     images = example["images"].to(cfg.device).to(torch.float32)
                     cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)
+                    _images = val_augmentation(images.reshape(-1, 3, cfg.model_config.H, cfg.model_config.W))
+                    images = _images.reshape(-1, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W)
                     cube_pose_pred_se3 = model(images)
                     loss = torch.mean(loss_fn(cube_pose_pred_se3, cube_pose_SE3))
                     val_loss += loss.item()
