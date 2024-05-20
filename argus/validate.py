@@ -56,7 +56,7 @@ class ValConfig:
     """
 
     model_path: str
-    model_config: Optional[NCameraCNNConfig] = None
+    model_config: NCameraCNNConfig = NCameraCNNConfig()
     dataset_config: CameraCubePoseDatasetConfig = CameraCubePoseDatasetConfig(
         dataset_path=ROOT + "/outputs/data/cube_unity_data.hdf5"
     )
@@ -105,6 +105,7 @@ def validate(cfg: ValConfig) -> None:
         cube_pose_true_SE3 = example["cube_pose"].to(device).to(torch.float32)
         _images = augmentation(images.reshape(-1, 3, model_config.H, model_config.W))
         images = _images.reshape(-1, model_config.n_cams * 3, model_config.H, model_config.W)
+
         cube_pose_pred_se3 = model(images)
         loss = torch.mean(geometric_loss_fn(cube_pose_pred_se3, cube_pose_true_SE3))
 

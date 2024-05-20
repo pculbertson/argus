@@ -96,6 +96,7 @@ def geometric_loss_fn(pred: torch.Tensor, target: pp.LieTensor) -> torch.Tensor:
 def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCameraCNN, Optimizer, ReduceLROnPlateau]:
     """Sets up the training."""
     # set random seed
+    torch.cuda.manual_seed_all(cfg.random_seed)
     torch.manual_seed(cfg.random_seed)
     np.random.seed(cfg.random_seed)
 
