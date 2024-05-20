@@ -7,11 +7,12 @@ from argus.train import TrainConfig, train
 def main(dataset_path: str):
     """Sets up the training."""
     train_cfg = TrainConfig(
-        batch_size=64,
+        batch_size=128,
         learning_rate=1e-3,
         n_epochs=100,
         device="cuda",
         max_grad_norm=1.0,
+        random_seed=42,
         val_epochs=5,
         print_epochs=1,
         save_epochs=5,
