@@ -161,3 +161,27 @@ class Augmentation(torch.nn.Module):
         if len(self.transforms) > 0 and self.train:
             images = self.transform_op(images)
         return images
+
+
+if __name__ == "__main__":
+    # Do a dry run of the datagen + save images to file.
+    from argus import ROOT
+    import tyro
+
+    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data.hdf5")
+    augmentation_cfg = tyro.cli(AugmentationConfig)
+    train_dataset = CameraCubePoseDataset(dataset_cfg, train=True)
+
+    augmentation = Augmentation(augmentation_cfg, train=True)
+
+    # Read and augment first image, and display with opencv.
+    import cv2
+
+    for ii in range(len(train_dataset)):
+        imgs = train_dataset[ii]["images"]
+        imgs = augmentation(imgs.reshape(-1, 3, train_dataset.H, train_dataset.W)).numpy()[0]
+        cv2.imshow("image", imgs.transpose(1, 2, 0))
+
+        cv2.waitKey(0)
+
+    cv2.waitKey(0)

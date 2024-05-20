@@ -238,6 +238,12 @@ def generate_data(cfg: GenerateDataConfig) -> None:
     # generating hdf5 file
     print("Saving all data to file...")
     train_test_idx = int(train_frac * len(images) * n_agents)
+
+    # Create parent directory if it doesn't exist.
+    parent_dir = Path(output_data_path).parent
+    if not os.path.exists(parent_dir):
+        os.makedirs(parent_dir)
+
     with h5py.File(output_data_path, "w") as f:
         f.attrs["n_cams"] = 2
         f.attrs["H"] = 376
