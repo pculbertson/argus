@@ -38,7 +38,9 @@ def dummy_data_path(tmp_path_factory) -> str:
 @pytest.fixture(scope="session")
 def dummy_save_dir(tmp_path_factory) -> str:
     """A fixture for the save directory."""
-    return str(tmp_path_factory.mktemp("tmp") / "outputs/models")
+    dummy_dir = tmp_path_factory.mktemp("tmp") / "outputs/models"
+    dummy_dir.mkdir(parents=True, exist_ok=True)
+    return str(dummy_dir)
 
 
 @pytest.fixture(scope="session")
