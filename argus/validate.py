@@ -5,6 +5,7 @@ from typing import Optional
 import matplotlib.pyplot as plt
 import pypose as pp
 import torch
+import tyro
 from matplotlib.lines import Line2D
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -54,7 +55,9 @@ class ValConfig:
     """
 
     model_path: str
-    dataset_config: CameraCubePoseDatasetConfig
+    dataset_config: CameraCubePoseDatasetConfig = CameraCubePoseDatasetConfig(
+        dataset_path=ROOT + "/outputs/data/cube_unity_data.hdf5"
+    )
     model_config: Optional[NCameraCNNConfig] = None
     use_train: bool = False
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
@@ -136,7 +139,5 @@ def validate(cfg: ValConfig) -> None:
 
 
 if __name__ == "__main__":
-    model_path = ROOT + "/outputs/models/f2bzobdo.pth"
-    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/cube_unity_data.hdf5")
-    cfg = ValConfig(model_path, dataset_cfg)
+    cfg = tyro.cli(ValConfig)
     validate(cfg)
