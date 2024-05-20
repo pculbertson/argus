@@ -31,6 +31,7 @@ class TrainConfig:
         n_epochs: The number of epochs.
         device: The device to train on.
         max_grad_norm: The maximum gradient norm.
+        random_seed: The random seed.
         val_epochs: The number of epochs between validation.
         print_epochs: The number of epochs between printing.
         save_epochs: The number of epochs between saving.
@@ -48,6 +49,7 @@ class TrainConfig:
     n_epochs: int = 100
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     max_grad_norm: float = 1.0
+    random_seed: int = 42
 
     # validation, printing, and saving
     val_epochs: int = 1
@@ -90,6 +92,10 @@ def geometric_loss_fn(pred: torch.Tensor, target: pp.LieTensor) -> torch.Tensor:
 
 def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCameraCNN, Optimizer, ReduceLROnPlateau]:
     """Sets up the training."""
+    # set random seed
+    torch.manual_seed(cfg.random_seed)
+    np.random.seed(cfg.random_seed)
+
     # dataloaders
     train_dataset = CameraCubePoseDataset(cfg.dataset_config, train=True)
     train_dataloader = DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True)
