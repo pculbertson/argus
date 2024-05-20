@@ -32,7 +32,7 @@ dependencies = [
 [project.optional-dependencies]
 # development-only dependencies
 unity = [
-    "mlagents-envs==1.0.0",
+    "mlagents==1.0.0",
 ]
 dev = [
     "unity",

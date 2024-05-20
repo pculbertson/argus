@@ -44,7 +44,7 @@ class TrainConfig:
     """
 
     # training parameters
-    batch_size: int = 128
+    batch_size: int = 64
     learning_rate: float = 1e-3
     n_epochs: int = 100
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
