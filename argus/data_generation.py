@@ -93,10 +93,11 @@ class GenerateDataConfig:
         cam2_nominal: Nominal camera pose for camera 2. The last 4 quat coords are xyzw convention. Shape=(7,).
         bounds_trans: Bounds of the uniform translation perturbations in meters.
         quat_stdev: Standard deviation of the Gaussian noise added to the quaternion (drawn in tangent space).
+        cam_rgb_range: The RGB values the camera can randomize over. Must be subset of the [0, 1] interval.
         train_frac: Fraction of the data to use for training.
     """
 
-    env_exe_path: str
+    env_exe_path: str = ROOT + "/outputs/unity/leap_env.x86_64"
     mjpc_data_path: str = ROOT + "/outputs/data/sim_residuals.json"
     output_data_path: str = ROOT + "/outputs/data/cube_unity_data.hdf5"
     n_agents: int = 1
@@ -104,6 +105,7 @@ class GenerateDataConfig:
     cam2_nominal: Optional[np.ndarray] = None
     bounds_trans: float = 0.01
     quat_stdev: float = 0.05
+    cam_rgb_range: tuple[float] = (0.0, 1.0)
     train_frac: float = 0.9
 
     def __post_init__(self):
@@ -139,6 +141,9 @@ class GenerateDataConfig:
         assert Path(self.output_data_path).suffix == ".hdf5", "The data path must have the .hdf5 extension!"
         assert Path(self.mjpc_data_path).suffix == ".json", "The mjpc data must be contained in a json file!"
         assert Path(self.env_exe_path).suffix in [".x86_64", ".app"], "The Unity environment must be an executable!"
+        assert isinstance(self.cam_rgb_range, tuple), "cam_rgb_range must be a 2-tuple!"
+        assert len(self.cam_rgb_range) == 2, "cam_rgb_range must be a 2-tuple!"
+        assert 0 <= self.cam_rgb_range[0] < self.cam_rgb_range[1] <= 1, "cam_rgb_range must be a subset of [0, 1]!"
 
 
 def generate_data(cfg: GenerateDataConfig) -> None:
@@ -150,6 +155,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
     output_data_path = cfg.output_data_path
     cam1_nominal = cfg.cam1_nominal
     cam2_nominal = cfg.cam2_nominal
+    cam_rgb_range = cfg.cam_rgb_range
     bounds_trans = cfg.bounds_trans
     quat_stdev = cfg.quat_stdev
     train_frac = cfg.train_frac
@@ -194,9 +200,11 @@ def generate_data(cfg: GenerateDataConfig) -> None:
 
         action = np.zeros((n_agents, expected_action_size))
         action[:, :7] = cam1_poses
-        action[:, 7:14] = cam2_poses
-        action[:, 14:21] = cube_poses_batch
-        action[:, 21:] = convert_mjpc_q_leap_to_unity(q_leap)
+        action[:, 7:10] = np.random.uniform(*cam_rgb_range, size=(n_agents, 3))
+        action[:, 10:17] = cam2_poses
+        action[:, 17:20] = np.random.uniform(*cam_rgb_range, size=(n_agents, 3))
+        action[:, 20:27] = cube_poses_batch
+        action[:, 27:] = convert_mjpc_q_leap_to_unity(q_leap)
 
         # advancing the Unity sim and rendering out observations
         action_tuple = ActionTuple(continuous=action)
