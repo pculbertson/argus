@@ -1,3 +1,5 @@
+import json
+
 import h5py
 import numpy as np
 import pypose as pp
@@ -32,6 +34,26 @@ def dummy_data_path(tmp_path_factory) -> str:
         test = f.create_group("test")
         create_dataset(test, 5)
 
+    return str(dummy_file)
+
+
+@pytest.fixture(scope="session")
+def dummy_json_path(tmp_path_factory) -> str:
+    """A fixture for creating a dummy JSON file used in all tests."""
+    dummy_file = tmp_path_factory.mktemp("tmp") / "dummy_sim_residuals.json"
+    data = []
+    for i in range(10):
+        data.append(
+            {
+                "dt": 0.01,
+                "s": [i for _ in range(45)],
+                "a": [i for _ in range(16)],
+                "sp_pred": [i for _ in range(45)],
+                "sp_actual": [i for _ in range(45)],
+            }
+        )
+    with open(dummy_file, "w") as f:
+        json.dump(data, f)
     return str(dummy_file)
 
 

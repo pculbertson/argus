@@ -89,6 +89,9 @@ class GenerateDataConfig:
     For instance, if you pass "example_dir/data.hdf5" to `output_data_path`, it will be saved under
     /path/to/argus/example_dir/data.hdf5.
 
+    If the mjpc data has more than n_file_split datapoints, then there will instead be multiple hdf5 files generation.
+    The naming scheme will be /path/desired/data/data_{i}.hdf5, where `i` is the index of the multiple files generated.
+
     Fields:
         env_exe_path: Path to the Unity environment executable.
         mjpc_data_path: Path to the bagged mjpc sim data.
@@ -100,6 +103,7 @@ class GenerateDataConfig:
         quat_stdev: Standard deviation of the Gaussian noise added to the quaternion (drawn in tangent space).
         cam_rgb_range: The RGB values the camera can randomize over. Must be subset of the [0, 1] interval.
         train_frac: Fraction of the data to use for training.
+        n_file_split: Number of episodes after which the output data are split into multiple files.
     """
 
     env_exe_path: str = ROOT + "/outputs/unity/leap_env.x86_64"
@@ -112,6 +116,7 @@ class GenerateDataConfig:
     quat_stdev: float = 0.05
     cam_rgb_range: tuple[float] = (0.0, 1.0)
     train_frac: float = 0.9
+    n_file_split: int = 2000
 
     def __post_init__(self):
         """Assigning defaults and doing sanity checks."""
@@ -175,6 +180,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
     bounds_trans = cfg.bounds_trans
     quat_stdev = cfg.quat_stdev
     train_frac = cfg.train_frac
+    n_file_split = cfg.n_file_split
 
     # retrieving the mjpc sim data
     with open(mjpc_data_path) as f:
@@ -191,6 +197,19 @@ def generate_data(cfg: GenerateDataConfig) -> None:
     # generating data
     env, behavior_name, expected_action_size = unity_setup(env_exe_path, n_agents=n_agents)
     images = []
+
+    # if n_episodes is large, chunk the hdf5s into multiple ones
+    if n_agents * n_episodes > n_file_split:
+        n_files = int(np.ceil(n_agents * n_episodes / n_file_split))
+    else:
+        n_files = 1
+        p = output_data_path
+    idx_file = 0
+
+    # create parent directory if it doesn't exist
+    parent_dir = Path(output_data_path).parent
+    if not os.path.exists(parent_dir):
+        os.makedirs(parent_dir, exist_ok=True)
 
     print("Rendering image data...")
     for episode in tqdm(range(n_episodes), desc="Episodes"):
@@ -235,29 +254,42 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         # bagging the data
         images.append(np.concatenate([cam1_obs, cam2_obs], axis=1).reshape(n_agents, 6, 376, 672))
 
-    # generating hdf5 file
-    print("Saving all data to file...")
-    train_test_idx = int(train_frac * len(images) * n_agents)
+        # chunk when needed
+        if len(images) >= cfg.n_file_split or episode == n_episodes - 1:
+            if n_files == 1:
+                p = output_data_path
+            else:
+                filename = Path(output_data_path).stem  # name without extension
+                if not os.path.exists(parent_dir / f"{filename}"):
+                    os.makedirs(parent_dir / f"{filename}", exist_ok=True)
+                p = parent_dir / f"{filename}" / f"{filename}_{idx_file}.hdf5"
 
-    # Create parent directory if it doesn't exist.
-    parent_dir = Path(output_data_path).parent
-    if not os.path.exists(parent_dir):
-        os.makedirs(parent_dir)
+            print(f"Saving data to file {idx_file + 1}/{n_files}...")
+            idxs = np.random.permutation(len(images))  # shuffle each chunk individually
+            train_test_idx = int(train_frac * len(images) * n_agents)  # index for train/test split
+            images_train = np.concatenate(images, axis=0)[idxs][:train_test_idx, ...]
+            images_test = np.concatenate(images, axis=0)[idxs][train_test_idx:, ...]
 
-    with h5py.File(output_data_path, "w") as f:
-        f.attrs["n_cams"] = 2
-        f.attrs["H"] = 376
-        f.attrs["W"] = 672
+            idx_start = n_file_split * idx_file
+            idx_end = n_file_split * (idx_file + 1) if idx_file < n_files - 1 else n_episodes * n_agents
+            cube_poses_train = cube_poses_truncated[idx_start:idx_end][idxs][:train_test_idx]
+            cube_poses_test = cube_poses_truncated[idx_start:idx_end][idxs][train_test_idx:]
+            idx_file += 1
 
-        idxs = np.random.permutation(len(images))  # shuffle the data before splitting into train/test
+            with h5py.File(p, "w") as f:
+                f.attrs["n_cams"] = 2
+                f.attrs["H"] = 376
+                f.attrs["W"] = 672
 
-        train = f.create_group("train")
-        train.create_dataset("images", data=np.concatenate(images, axis=0)[idxs][:train_test_idx, ...])
-        train.create_dataset("cube_poses", data=cube_poses_truncated[idxs][:train_test_idx, ...])
+                train = f.create_group("train")
+                train.create_dataset("images", data=images_train)
+                train.create_dataset("cube_poses", data=cube_poses_train)
 
-        test = f.create_group("test")
-        test.create_dataset("images", data=np.concatenate(images, axis=0)[idxs][train_test_idx:, ...])
-        test.create_dataset("cube_poses", data=cube_poses_truncated[idxs][train_test_idx:, ...])
+                test = f.create_group("test")
+                test.create_dataset("images", data=images_test)
+                test.create_dataset("cube_poses", data=cube_poses_test)
+
+            images = []
 
     env.close()
 
