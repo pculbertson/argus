@@ -30,6 +30,9 @@ class TrainConfig:
     For instance, if you pass "example_dir" to `save_dir`, the model will be saved under /path/to/argus/example_dir.
 
     Fields:
+        dataset_config: The configuration for the dataset.
+        model_config: The configuration for the model.
+        compile_model: Whether to compile the model.
         batch_size: The batch size.
         learning_rate: The learning rate.
         n_epochs: The number of epochs.
@@ -40,12 +43,14 @@ class TrainConfig:
         print_epochs: The number of epochs between printing.
         save_epochs: The number of epochs between saving.
         save_dir: The directory to save the model.
-        model_config: The configuration for the model.
-        dataset_config: The configuration for the dataset.
-        compile_model: Whether to compile the model.
         wandb_project: The wandb project name.
         wandb_log: Whether to log to wandb.
     """
+
+    # model and dataset parameters
+    dataset_config: CameraCubePoseDatasetConfig
+    model_config: NCameraCNNConfig = NCameraCNNConfig()
+    compile_model: bool = False  # WARNING: compiling the model during training makes it hard to load later
 
     # training parameters
     batch_size: int = 64
@@ -60,11 +65,6 @@ class TrainConfig:
     print_epochs: int = 1
     save_epochs: int = 5
     save_dir: str = ROOT + "/outputs/models"
-
-    # model and dataset parameters
-    model_config: NCameraCNNConfig = NCameraCNNConfig()
-    dataset_config: CameraCubePoseDatasetConfig = CameraCubePoseDatasetConfig(ROOT + "/outputs/data/cube_unity_data")
-    compile_model: bool = False  # WARNING: compiling the model during training makes it hard to load later
 
     # data augmentation
     augmentation_config: AugmentationConfig = AugmentationConfig()

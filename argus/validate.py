@@ -14,6 +14,7 @@ from argus import ROOT
 from argus.data import Augmentation, AugmentationConfig, CameraCubePoseDataset, CameraCubePoseDatasetConfig
 from argus.models import NCameraCNN, NCameraCNNConfig
 from argus.train import geometric_loss_fn
+from argus.utils import get_tree_string
 
 
 def plot_axes_from_pose(pose: pp.SE3, true: bool, ax: Optional[plt.Axes] = None) -> None:
@@ -47,27 +48,36 @@ class ValConfig:
     """The configuration dataclass for validation.
 
     Fields:
-        model_path: The path to the model to validate.
-        model_config: The configuration for the model.
+        model_path: The path to the saved model to validate.
         dataset_config: The configuration for the dataset.
+        model_config: The configuration for the model.
         aug_config: The configuration for the augmentation.
         use_train: Whether to use the training set.
         device: The device to run on.
     """
 
     model_path: str
+    dataset_config: CameraCubePoseDatasetConfig
     model_config: NCameraCNNConfig = NCameraCNNConfig()
-    dataset_config: CameraCubePoseDatasetConfig = CameraCubePoseDatasetConfig(
-        dataset_path=ROOT + "/outputs/data/cube_unity_data.hdf5"
-    )
     aug_config: AugmentationConfig = AugmentationConfig()
     use_train: bool = False
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
     def __post_init__(self):
         """Sanity checks on inputs."""
+        assert self.dataset_config is not None, (
+            "The dataset config must be provided with a valid dataset path!\n"
+            "Here is a tree of the `outputs/data` directory to help:\n"
+            f"{get_tree_string(ROOT + '/outputs/data', 'hdf5')}"
+        )
         assert isinstance(self.model_path, str), "The model path must be a str!"
         assert self.model_path.endswith(".pth"), "The model path must end with '.pth'!"
+        if not os.path.exists(self.model_path):
+            raise FileNotFoundError(
+                f"The specified path does not exist!\n"
+                f"Here is a tree of the `outputs/models` directory to help:\n"
+                f"{get_tree_string(ROOT + '/outputs/models', 'pth')}"
+            )
 
 
 def validate(cfg: ValConfig) -> None:

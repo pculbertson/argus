@@ -11,7 +11,7 @@ import torch
 from torch.utils.data import Dataset
 
 from argus import ROOT
-from argus.utils import xyzwxyz_to_xyzxyzw_SE3
+from argus.utils import get_tree_string, xyzwxyz_to_xyzxyzw_SE3
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,11 @@ class CameraCubePoseDatasetConfig:
 
     def __post_init__(self) -> None:
         """Checks that the dataset path is set and that it is a string for wandb serialization."""
-        assert self.dataset_path is not None, "The dataset path must be set!"
+        assert self.dataset_path is not None, (
+            "The dataset path must be provided (either an hdf5 file or a directory with them)!\n"
+            "Here is a tree of the `outputs/data` directory to help:\n"
+            f"{get_tree_string(ROOT + '/outputs/data', 'hdf5')}"
+        )
         # check whether there's an extension or not
         if not Path(self.dataset_path).suffix:
             # iterate over all files in the directory

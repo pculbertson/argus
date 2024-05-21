@@ -1,3 +1,5 @@
+import fnmatch
+import os
 from typing import Callable
 
 import numpy as np
@@ -220,3 +222,63 @@ def get_pose(images: torch.Tensor, model: torch.nn.Module) -> pp.LieTensor:
         pose: The predicted pose of the cube expressed as a 7d pose. The quaternion elements are in (x, y, z, w) order.
     """
     return pp.se3(model(images)).Exp()
+
+
+# ######## #
+# PRINTING #
+# ######## #
+
+
+def _get_tree_string(path: str, extension: str, indent="") -> str:
+    """Returns a tree of the requested path as a string if the leaves match the extension.
+
+    Args:
+        path: The path to print the tree of.
+        extension: The extension to filter the files by.
+        indent: The current indentation level.
+
+    Returns:
+        A string representation of the directory tree.
+    """
+    tree_string = ""
+
+    # get all files in current path
+    items = os.listdir(path)
+    items.sort()
+
+    # Filter out files that don't match the extension
+    items = [
+        item for item in items if os.path.isdir(os.path.join(path, item)) or fnmatch.fnmatch(item, f"*.{extension}")
+    ]
+
+    for i, item in enumerate(items):
+        full_path = os.path.join(path, item)
+
+        # Add with tree formatting
+        if i == len(items) - 1:  # Last item in the directory
+            tree_string += indent + "└── " + item + "\n"
+            new_indent = indent + "    "
+        else:  # Not the last item
+            tree_string += indent + "├── " + item + "\n"
+            new_indent = indent + "│   "
+
+        # If the item is a directory, recursively get its tree string
+        if os.path.isdir(full_path):
+            tree_string += _get_tree_string(full_path, extension, new_indent)
+
+    return tree_string
+
+
+def get_tree_string(path: str, extension: str) -> str:
+    """Prints the tree of the requested path as a string if the leaves match the extension in blue.
+
+    Args:
+        path: The path to print the tree of.
+        extension: The extension to filter the files by.
+
+    Returns:
+        A string representation of the directory tree starting from the given path.
+    """
+    BLUE = "\033[94m"
+    RESET = "\033[0m"
+    return BLUE + path + "\n" + _get_tree_string(path, extension) + RESET
