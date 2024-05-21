@@ -1320,7 +1320,7 @@ MonoBehaviour:
   m_BehaviorType: 0
   m_BehaviorName: LeapAgent
   TeamId: 0
-  m_UseChildSensors: 1
+  m_UseChildSensors: 0
   m_UseChildActuators: 1
   m_DeterministicInference: 0
   m_ObservableAttributeHandling: 0
@@ -1373,7 +1373,7 @@ MonoBehaviour:
   m_Height: 376
   m_Grayscale: 0
   m_ObservationType: 0
-  m_RuntimeCameraEnable: 0
+  m_RuntimeCameraEnable: 1
   m_ObservationStacks: 1
   m_Compression: 1
 --- !u!114 &309871104
@@ -1394,7 +1394,7 @@ MonoBehaviour:
   m_Height: 376
   m_Grayscale: 0
   m_ObservationType: 0
-  m_RuntimeCameraEnable: 0
+  m_RuntimeCameraEnable: 1
   m_ObservationStacks: 1
   m_Compression: 1
 --- !u!1 &317772298

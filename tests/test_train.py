@@ -29,6 +29,12 @@ def test_geometric_loss_fn() -> None:
     loss = geometric_loss_fn(pred, target)
     assert loss.shape == torch.Size([32])
 
+    pred = pp.randn_se3(32)
+    target = pred.Exp()
+    loss = geometric_loss_fn(pred, target)
+    assert loss.shape == torch.Size([32])
+    assert torch.allclose(loss, torch.zeros(32))
+
 
 def test_train(dummy_save_dir, dummy_data_path, dummy_model) -> None:
     """Tests that the training loop runs all the way through properly for 1 iteration."""
