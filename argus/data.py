@@ -24,7 +24,9 @@ class CameraCubePoseDatasetConfig:
     /path/to/argus/example_dir/datda.hdf5.
 
     Args:
-        dataset_path: The path to the dataset. Must lead to an hdf5 file.
+        dataset_path: The path to the dataset. Must lead to an hdf5 file or a directory of hdf5 files. Specifically, if
+            you supply the path /path/to/dir, then the files must have the form /path/to/dir/dir_{i}.hdf5, where i is
+            some integer.
     """
 
     dataset_path: Optional[str] = None
@@ -32,7 +34,20 @@ class CameraCubePoseDatasetConfig:
     def __post_init__(self) -> None:
         """Checks that the dataset path is set and that it is a string for wandb serialization."""
         assert self.dataset_path is not None, "The dataset path must be set!"
-        assert Path(self.dataset_path).suffix == ".hdf5", "The dataset must be stored as an hdf5 file!"
+        # check whether there's an extension or not
+        if not Path(self.dataset_path).suffix:
+            # iterate over all files in the directory
+            for file in os.listdir(self.dataset_path):
+                assert Path(file).suffix == ".hdf5", "The dataset must consist of hdf5 files!"
+                assert (
+                    str(Path(file).stem).split("_")[-1].isdigit()
+                ), "The dataset must be named as `cube_unity_data_{n}.hdf5`!"
+                assert "_".join(str(Path(file).stem).split("_")[:-1]) == str(Path(self.dataset_path).stem), (
+                    "The dataset must be named as `{dir_name}_{n}.hdf5` where the directory name is the same as "
+                    "the dataset path!"
+                )
+        else:
+            assert Path(self.dataset_path).suffix == ".hdf5", "The dataset must be stored as an hdf5 file!"
         assert isinstance(self.dataset_path, str), "The dataset path must be a str!"
         if not os.path.exists(self.dataset_path):  # absolute path
             if os.path.exists(ROOT + "/" + self.dataset_path):
@@ -67,21 +82,49 @@ class CameraCubePoseDataset(Dataset):
             train: Whether to load the training or test set. Default=True.
         """
         dataset_path = cfg.dataset_path
-        with h5py.File(dataset_path, "r") as f:
-            if train:
-                self.dataset = f["train"]
-            else:
-                self.dataset = f["test"]
+        # case 1: single file
+        if Path(dataset_path).suffix:
+            with h5py.File(dataset_path, "r") as f:
+                if train:
+                    dataset = f["train"]
+                else:
+                    dataset = f["test"]
 
-            # extracting attributes
-            self.n_cams = f.attrs["n_cams"]
-            self.W = f.attrs["W"]
-            self.H = f.attrs["H"]
+                # extracting attributes
+                self.n_cams = f.attrs["n_cams"]
+                self.W = f.attrs["W"]
+                self.H = f.attrs["H"]
 
-            # grabbing the data
-            _cube_poses = torch.from_numpy(self.dataset["cube_poses"][()])  # original quat order is (w, x, y, z)
-            self.cube_poses = pp.SE3(xyzwxyz_to_xyzxyzw_SE3(_cube_poses))  # pp expects quat order to be (x, y, z, w)
-            self.images = self.dataset["images"][()]  # (n_data, n_cams, 3, H, W)
+                # grabbing the data
+                _cube_poses = torch.from_numpy(dataset["cube_poses"][()])  # original quat order is (w, x, y, z)
+                self.cube_poses = pp.SE3(xyzwxyz_to_xyzxyzw_SE3(_cube_poses))  # pp quat order is (x, y, z, w)
+                self.images = dataset["images"][()]  # (n_data, n_cams, 3, H, W)
+
+        # case 2: multiple files
+        else:
+            # iterate over all files in the directory
+            for i, file in enumerate(os.listdir(dataset_path)):
+                with h5py.File(dataset_path + "/" + file, "r") as f:
+                    if train:
+                        dataset = f["train"]
+                    else:
+                        dataset = f["test"]
+
+                    # extracting attributes
+                    self.n_cams = f.attrs["n_cams"]
+                    self.W = f.attrs["W"]
+                    self.H = f.attrs["H"]
+
+                    # grabbing the data
+                    _cube_poses = torch.from_numpy(dataset["cube_poses"][()])
+                    if i == 0:
+                        self.cube_poses = pp.SE3(xyzwxyz_to_xyzxyzw_SE3(_cube_poses))
+                        self.images = dataset["images"][()]
+                    else:
+                        self.cube_poses = torch.cat(
+                            (self.cube_poses, pp.SE3(xyzwxyz_to_xyzxyzw_SE3(_cube_poses))), dim=0
+                        )
+                        self.images = np.concatenate((self.images, dataset["images"][()]), axis=0)
 
     def __len__(self) -> int:
         """Number of datapoints, i.e., (N image, cube pose) tuples."""
@@ -164,19 +207,17 @@ class Augmentation(torch.nn.Module):
 
 
 if __name__ == "__main__":
-    # Do a dry run of the datagen + save images to file.
-    from argus import ROOT
+    # [DEBUG] do a dry run of the datagen + save images to file
+    import cv2
     import tyro
 
-    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data.hdf5")
+    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data_medium.hdf5")
     augmentation_cfg = tyro.cli(AugmentationConfig)
     train_dataset = CameraCubePoseDataset(dataset_cfg, train=True)
 
     augmentation = Augmentation(augmentation_cfg, train=True)
 
     # Read and augment first image, and display with opencv.
-    import cv2
-
     for ii in range(len(train_dataset)):
         imgs = train_dataset[ii]["images"]
         imgs = augmentation(imgs.reshape(-1, 3, train_dataset.H, train_dataset.W)).numpy()[0]

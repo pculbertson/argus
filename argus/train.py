@@ -63,9 +63,7 @@ class TrainConfig:
 
     # model and dataset parameters
     model_config: NCameraCNNConfig = NCameraCNNConfig()
-    dataset_config: CameraCubePoseDatasetConfig = CameraCubePoseDatasetConfig(
-        ROOT + "/outputs/data/cube_unity_data.hdf5"
-    )
+    dataset_config: CameraCubePoseDatasetConfig = CameraCubePoseDatasetConfig(ROOT + "/outputs/data/cube_unity_data")
     compile_model: bool = False  # WARNING: compiling the model during training makes it hard to load later
 
     # data augmentation
@@ -110,13 +108,18 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
     np.random.seed(cfg.random_seed)
 
     # dataloaders and augmentations
-    train_dataset = CameraCubePoseDataset(cfg.dataset_config, train=True)
-    train_dataloader = DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True)
-    train_augmentation = Augmentation(cfg.augmentation_config, train=True).to(cfg.device)
+    print("Loading all data into memory...")
+    try:
+        train_dataset = CameraCubePoseDataset(cfg.dataset_config, train=True)
+        train_dataloader = DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True)
+        train_augmentation = Augmentation(cfg.augmentation_config, train=True).to(cfg.device)
 
-    val_dataset = CameraCubePoseDataset(cfg.dataset_config, train=False)
-    val_dataloader = DataLoader(val_dataset, batch_size=cfg.batch_size, shuffle=False)
-    val_augmentation = Augmentation(cfg.augmentation_config, train=False).to(cfg.device)
+        val_dataset = CameraCubePoseDataset(cfg.dataset_config, train=False)
+        val_dataloader = DataLoader(val_dataset, batch_size=cfg.batch_size, shuffle=False)
+        val_augmentation = Augmentation(cfg.augmentation_config, train=False).to(cfg.device)
+
+    except RuntimeError:
+        print("Data too large to load into memory. Please consider using a larger machine or a smaller dataset!")
 
     # model
     model = NCameraCNN(cfg.model_config).to(cfg.device)
