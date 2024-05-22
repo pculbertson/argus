@@ -66,6 +66,12 @@ def dummy_save_dir(tmp_path_factory) -> str:
 
 
 @pytest.fixture(scope="session")
-def dummy_model() -> NCameraCNN:
-    """A fixture for the model."""
-    return NCameraCNN(NCameraCNNConfig(n_cams=2, W=672, H=376))
+def dummy_model_se3() -> NCameraCNN:
+    """A fixture for the model with se3 output type."""
+    return NCameraCNN(NCameraCNNConfig(n_cams=2, W=672, H=376, output_type="se3"))
+
+
+@pytest.fixture(scope="session")
+def dummy_model_cts_6d() -> NCameraCNN:
+    """A fixture for the model with cts_6d output type."""
+    return NCameraCNN(NCameraCNNConfig(n_cams=2, W=672, H=376, output_type="cts_6d"))

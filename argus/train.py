@@ -17,6 +17,7 @@ from wandb.util import generate_id
 from argus import ROOT
 from argus.data import Augmentation, AugmentationConfig, CameraCubePoseDataset, CameraCubePoseDatasetConfig
 from argus.models import NCameraCNN, NCameraCNNConfig
+from argus.utils import convert_to_SE3
 
 torch.set_float32_matmul_precision("high")
 
@@ -83,21 +84,24 @@ class TrainConfig:
                 raise FileNotFoundError(f"The specified path does not exist: {self.save_dir}!")
 
 
-def geometric_loss_fn(pred: torch.Tensor, target: pp.LieTensor) -> torch.Tensor:
+def geometric_loss_fn(pred: torch.Tensor, target: pp.LieTensor, model: nn.Module) -> torch.Tensor:
     """The geometric loss function.
 
-    The model predictions are in se(3), so they are 6-vectors that must be cast to se3 objects then exponentiated in
-    order to compare with the targets, which are cube poses in SE(3). Finally, the loss is an L2 loss taken in the
-    tangent space.
-
     Args:
-        pred: The predicted poses in se(3) of shape (B, 6).
+        pred: The predicted representation. Depends on the model output type, which is handled by convert_to_SE3.
         target: The target poses in SE(3) of shape (B, 7).
+        model: The model to get the pose from the predicted se(3) poses.
 
     Returns:
         losses: The losses of shape (B,).
     """
-    return torch.sum((pp.se3(pred).Exp() @ target.Inv()).Log() ** 2, axis=-1)
+    # [DEBUG] playing with weightings on the different components
+    ###########################################################################################
+    # weight = torch.ones(*(len(pred.shape[:-1]) * (1,) + (6,)), device=pred.device)
+    # weight[..., :3] = 0.0  # [DEBUG]
+    # return torch.sum(weight * (convert_to_SE3(pred, model) @ target.Inv()).Log() ** 2, axis=-1)
+    ###########################################################################################
+    return torch.sum((convert_to_SE3(pred, model) @ target.Inv()).Log() ** 2, axis=-1)
 
 
 def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCameraCNN, Optimizer, ReduceLROnPlateau]:
@@ -157,7 +161,7 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
     scheduler = ReduceLROnPlateau(optimizer, "min", patience=5, factor=0.5)
 
     # loss function
-    loss_fn = geometric_loss_fn
+    loss_fn = lambda pred, target: geometric_loss_fn(pred, target, model)
 
     # wandb
     wandb_id = generate_id()
@@ -203,8 +207,8 @@ def train(cfg: TrainConfig) -> None:
             images = _images.reshape(-1, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W)
 
             # forward pass
-            cube_pose_pred_se3 = model(images)  # therefore, the predicted quats are (x, y, z, w)
-            loss = torch.mean(loss_fn(cube_pose_pred_se3, cube_pose_SE3))
+            cube_pose_pred_repr = model(images)  # therefore, the predicted quats are (x, y, z, w)
+            loss = torch.mean(loss_fn(cube_pose_pred_repr, cube_pose_SE3))
             optimizer.zero_grad()
             loss.backward()
             avg_loss_in_epoch += loss.item()
@@ -228,8 +232,8 @@ def train(cfg: TrainConfig) -> None:
                     cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)
                     _images = val_augmentation(images.reshape(-1, 3, cfg.model_config.H, cfg.model_config.W))
                     images = _images.reshape(-1, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W)
-                    cube_pose_pred_se3 = model(images)
-                    loss = torch.mean(loss_fn(cube_pose_pred_se3, cube_pose_SE3))
+                    cube_pose_pred_repr = model(images)
+                    loss = torch.mean(loss_fn(cube_pose_pred_repr, cube_pose_SE3))
                     val_loss += loss.item()
 
                 val_loss /= len(val_dataloader)

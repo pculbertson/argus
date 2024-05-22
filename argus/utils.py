@@ -211,6 +211,40 @@ def time_torch_fn(fn: Callable[[], torch.Tensor]) -> tuple[torch.Tensor, float]:
 # ######### #
 
 
+def convert_to_SE3(pose_repr: torch.Tensor, model: torch.nn.Module) -> pp.LieTensor:
+    """Converts the representation to SE(3) from the model output.
+
+    Args:
+        pose_repr: The pose representation from the model.
+        model: The model to use.
+
+    Returns:
+        pose: The predicted pose of the cube expressed as a 3x3 rotation matrix.
+    """
+    if model.output_type == "se3":
+        return pp.se3(pose_repr).Exp()
+
+    elif model.output_type == "cts_6d":
+        trans = pose_repr[..., :3]
+        _x_axis = pose_repr[..., 3:6, None]  # (B, 3, 1)
+        _y_axis = pose_repr[..., 6:9, None]  # (B, 3, 1)
+        x_axis = _x_axis / torch.norm(_x_axis, dim=-2, keepdim=True)  # (B, 3, 1), normalized
+        _y_axis = _y_axis - torch.sum(x_axis * _y_axis, dim=-2, keepdim=True) * x_axis  # project
+        y_axis = _y_axis / torch.norm(_y_axis, dim=-2, keepdim=True)  # (B, 3, 1)
+        z_axis = torch.cross(x_axis.squeeze(-1), y_axis.squeeze(-1), dim=-1)[..., None]  # (B, 3, 1)
+        rot = torch.cat([x_axis, y_axis, z_axis], dim=-1)  # (B, 3, 3)
+
+        # make batch of homogeneous transforms
+        poses = torch.zeros(*pose_repr.shape[:-1], 4, 4, device=pose_repr.device)
+        poses[..., :3, :3] = rot
+        poses[..., :3, -1] = trans
+        poses[..., -1, -1] = 1.0
+        return pp.from_matrix(poses, ltype=pp.SE3_type)
+
+    else:
+        raise ValueError("The output type must be either 'cts_6d' or 'se3'!")
+
+
 def get_pose(images: torch.Tensor, model: torch.nn.Module) -> pp.LieTensor:
     """Get the pose of the cube from the images.
 
@@ -221,7 +255,7 @@ def get_pose(images: torch.Tensor, model: torch.nn.Module) -> pp.LieTensor:
     Returns:
         pose: The predicted pose of the cube expressed as a 7d pose. The quaternion elements are in (x, y, z, w) order.
     """
-    return pp.se3(model(images)).Exp()
+    return convert_to_SE3(model(images), model)
 
 
 # ######## #
