@@ -234,11 +234,14 @@ def convert_to_SE3(pose_repr: torch.Tensor, model: torch.nn.Module) -> pp.LieTen
         z_axis = torch.cross(x_axis.squeeze(-1), y_axis.squeeze(-1), dim=-1)[..., None]  # (B, 3, 1)
         rot = torch.cat([x_axis, y_axis, z_axis], dim=-1)  # (B, 3, 3)
 
-        # make batch of homogeneous transforms
-        poses = torch.zeros(*pose_repr.shape[:-1], 4, 4, device=pose_repr.device)
-        poses[..., :3, :3] = rot
-        poses[..., :3, -1] = trans
-        poses[..., -1, -1] = 1.0
+        # form pose
+        poses_top = torch.cat([rot, trans[..., None]], dim=-1)  # (B, 3, 4)
+        poses_bot = (
+            torch.tensor([0.0, 0.0, 0.0, 1.0], device=pose_repr.device)
+            .view(1, 1, 4)
+            .expand(*poses_top.shape[:-2], 1, 4)
+        )
+        poses = torch.cat([poses_top, poses_bot], dim=-2)
         return pp.from_matrix(poses, ltype=pp.SE3_type)
 
     else:
