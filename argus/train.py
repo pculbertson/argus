@@ -196,7 +196,7 @@ def train(cfg: TrainConfig) -> None:
     for epoch in range(cfg.n_epochs):
         # training loop
         model.train()
-        avg_loss_in_epoch = 0.0
+        avg_loss_in_epoch = []
         for example in tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{cfg.n_epochs}", total=len(train_dataloader)):
             # loading data
             images = example["images"].to(cfg.device).to(torch.float32)
@@ -208,10 +208,11 @@ def train(cfg: TrainConfig) -> None:
 
             # forward pass
             cube_pose_pred_se3 = model(images)  # therefore, the predicted quats are (x, y, z, w)
-            loss = torch.mean(loss_fn(cube_pose_pred_se3, cube_pose_SE3))
+            losses = loss_fn(cube_pose_pred_se3, cube_pose_SE3)
+            loss = torch.mean(losses)
             optimizer.zero_grad()
             loss.backward()
-            avg_loss_in_epoch += loss.item()
+            avg_loss_in_epoch.append(losses)
             if cfg.wandb_log:
                 wandb.log({"loss": loss.item()})
 
@@ -220,13 +221,13 @@ def train(cfg: TrainConfig) -> None:
             optimizer.step()
 
         if epoch % cfg.print_epochs == 0:
-            print(f"    Avg. Loss in Epoch: {avg_loss_in_epoch / len(train_dataloader)}")
+            print(f"    Avg. Loss in Epoch: {torch.mean(torch.cat(avg_loss_in_epoch)).item()}")
 
         # validation loop
         if epoch % cfg.val_epochs == 0:
             model.eval()
             with torch.no_grad():
-                val_loss = 0
+                val_loss = []
                 for example in val_dataloader:
                     images = example["images"].to(cfg.device).to(torch.float32)
                     cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)
@@ -236,10 +237,10 @@ def train(cfg: TrainConfig) -> None:
                             -1, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W
                         )
                     cube_pose_pred_repr = model(images)
-                    loss = torch.sum(loss_fn(cube_pose_pred_repr, cube_pose_SE3))
-                    val_loss += loss.item()
+                    losses = loss_fn(cube_pose_pred_repr, cube_pose_SE3)
+                    val_loss.append(losses)
 
-                val_loss /= len(val_dataloader)
+                val_loss = torch.mean(torch.cat(val_loss)).item()
                 if cfg.wandb_log:
                     wandb.log({"val_loss": val_loss})
                 print(f"    Validation loss: {val_loss}")
