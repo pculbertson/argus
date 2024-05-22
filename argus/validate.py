@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pypose as pp
 import torch
 import tyro
@@ -109,6 +110,7 @@ def validate(cfg: ValConfig) -> None:
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
 
     # for each data example, plot the true and predicted cube pose
+    losses = []
     for i, example in tqdm(enumerate(dataloader), total=len(dataloader)):
         # forward pass
         images = example["images"].to(device).to(torch.float32)
@@ -118,6 +120,7 @@ def validate(cfg: ValConfig) -> None:
 
         cube_pose_pred_se3 = model(images)
         loss = torch.mean(geometric_loss_fn(cube_pose_pred_se3, cube_pose_true_SE3))
+        losses.append(loss.item())
 
         # plot the true and predicted cube poses
         cube_pose_pred_SE3 = pp.se3(cube_pose_pred_se3).Exp()
@@ -156,6 +159,20 @@ def validate(cfg: ValConfig) -> None:
             os.makedirs(output_path)
         fig.savefig(output_path + f"/example_{i}.png", bbox_inches="tight")
         plt.close()
+
+    # Plot a histogram of the losses and save to file.
+    fig, ax = plt.subplots()
+    logbins = np.geomspace(0.001, 1e1, 20)
+    ax.hist(
+        losses,
+        bins=logbins,
+    )
+    ax.set_xscale("log")
+    ax.set_title(f"Loss Histogram | Checkpoint: {ckpt_name}")
+    ax.set_xlabel("Loss")
+    ax.set_ylabel("Frequency")
+    fig.savefig(output_path + "/loss_histogram.png", bbox_inches="tight")
+    plt.close()
 
 
 if __name__ == "__main__":

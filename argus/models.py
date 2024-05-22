@@ -15,11 +15,13 @@ class NCameraCNNConfig:
         n_cams: The number of cameras in the scene.
         W: The width of the input images.
         H: The height of the input images.
+        resnet_output_dim: The output dimension of the ResNet model (before final FC layer).
     """
 
     n_cams: int = 2
     W: int = 672
     H: int = 376
+    resnet_output_dim: int = 1024
 
 
 class NCameraCNN(nn.Module):
@@ -39,20 +41,30 @@ class NCameraCNN(nn.Module):
             cfg: The configuration for the model. If None, the default configuration is used.
         """
         super().__init__()
-        self.resnet = models.resnet34(weights="DEFAULT")  # finetune a pretrained ResNet-18
+        self.resnet = models.resnet18(weights="DEFAULT")
 
         if cfg is None:
             cfg = NCameraCNNConfig()
         self.num_channels = 3 * cfg.n_cams  # RGB-only for each cam, all channels concatenated
         self.H = cfg.H
         self.W = cfg.W
+        self.resnet_output_dim = cfg.resnet_output_dim
+
+        self.n_cams = cfg.n_cams
 
         # adjust the first convolutional layer to match the correct number of input channels
-        self.resnet.conv1 = nn.Conv2d(self.num_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
 
         # replace the average pooling and the final fully connected layer
         self.resnet.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 6)
+        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, self.resnet_output_dim)
+
+        self.output_mlp = nn.Sequential(
+            nn.Linear(self.n_cams * self.resnet_output_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 128),
+            nn.ReLU(),
+            nn.Linear(128, 6),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the CNN.
@@ -65,4 +77,17 @@ class NCameraCNN(nn.Module):
                 exponential map to it, e.g., `pose.Exp()`.
         """
         assert len(x.shape) == 4, "The input images must be of shape (B, C, W, H)! If B=1, add a dummy dimension."
-        return self.resnet(x)
+
+        B, _, _, _ = x.shape
+
+        # Split the input images into n_cams.
+        x = x.reshape(-1, 3, self.W, self.H)
+
+        # Forward pass through the resnet.
+        x = self.resnet(x)
+
+        # Reshape the output to (B, n_cams * resnet_output_dim).
+        x = x.reshape(B, self.n_cams * self.resnet_output_dim)
+        x = nn.ReLU()(x)
+
+        return self.output_mlp(x)

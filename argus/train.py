@@ -236,9 +236,10 @@ def train(cfg: TrainConfig) -> None:
                             -1, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W
                         )
                     cube_pose_pred_repr = model(images)
-                    loss = torch.mean(loss_fn(cube_pose_pred_repr, cube_pose_SE3))
+                    loss = torch.sum(loss_fn(cube_pose_pred_repr, cube_pose_SE3))
                     val_loss += loss.item()
 
+                val_loss /= len(val_dataloader)
                 if cfg.wandb_log:
                     wandb.log({"val_loss": val_loss})
                 print(f"    Validation loss: {val_loss}")
