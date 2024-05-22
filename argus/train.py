@@ -11,6 +11,7 @@ import wandb
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
+from torchvision import transforms
 from tqdm import tqdm
 from wandb.util import generate_id
 
@@ -68,6 +69,7 @@ class TrainConfig:
 
     # data augmentation
     augmentation_config: AugmentationConfig = AugmentationConfig()
+    use_augmentation: bool = False
 
     # wandb
     wandb_project: str = "argus-estimator"
@@ -199,8 +201,10 @@ def train(cfg: TrainConfig) -> None:
             # loading data
             images = example["images"].to(cfg.device).to(torch.float32)
             cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)  # quats are (x, y, z, w)
-            _images = train_augmentation(images.reshape(-1, 3, cfg.model_config.H, cfg.model_config.W))
-            images = _images.reshape(-1, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W)
+            if cfg.use_augmentation:
+                _images = train_augmentation(images.reshape(-1, 3, cfg.model_config.H, cfg.model_config.W))
+
+                images = _images.reshape(-1, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W)
 
             # forward pass
             cube_pose_pred_se3 = model(images)  # therefore, the predicted quats are (x, y, z, w)
@@ -226,13 +230,15 @@ def train(cfg: TrainConfig) -> None:
                 for example in val_dataloader:
                     images = example["images"].to(cfg.device).to(torch.float32)
                     cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)
-                    _images = val_augmentation(images.reshape(-1, 3, cfg.model_config.H, cfg.model_config.W))
-                    images = _images.reshape(-1, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W)
-                    cube_pose_pred_se3 = model(images)
-                    loss = torch.mean(loss_fn(cube_pose_pred_se3, cube_pose_SE3))
+                    if cfg.use_augmentation:
+                        _images = val_augmentation(images.reshape(-1, 3, cfg.model_config.H, cfg.model_config.W))
+                        images = _images.reshape(
+                            -1, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W
+                        )
+                    cube_pose_pred_repr = model(images)
+                    loss = torch.mean(loss_fn(cube_pose_pred_repr, cube_pose_SE3))
                     val_loss += loss.item()
 
-                val_loss /= len(val_dataloader)
                 if cfg.wandb_log:
                     wandb.log({"val_loss": val_loss})
                 print(f"    Validation loss: {val_loss}")

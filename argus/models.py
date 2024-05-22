@@ -39,7 +39,7 @@ class NCameraCNN(nn.Module):
             cfg: The configuration for the model. If None, the default configuration is used.
         """
         super().__init__()
-        self.resnet = models.resnet18(weights="DEFAULT")  # finetune a pretrained ResNet-18
+        self.resnet = models.resnet34(weights="DEFAULT")  # finetune a pretrained ResNet-18
 
         if cfg is None:
             cfg = NCameraCNNConfig()
