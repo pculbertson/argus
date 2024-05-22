@@ -10,9 +10,9 @@ public class AgentCallback : Agent {
     private Rigidbody cube;
     private Camera cam1;
     private Camera cam2;
-
     private Color cam1BackgroundColor;
     private Color cam2BackgroundColor;
+    private Light lightSource;
 
     private int rotationalJoints = 16;
 
@@ -24,6 +24,7 @@ public class AgentCallback : Agent {
         cam1.clearFlags = CameraClearFlags.SolidColor;
         cam2 = this.GetComponentsInChildren<Camera>()[1];
         cam2.clearFlags = CameraClearFlags.SolidColor;
+        lightSource = this.GetComponentInChildren<Light>();
     }
 
     public override void OnEpisodeBegin() { /** do nothing **/ }
@@ -48,7 +49,7 @@ public class AgentCallback : Agent {
         cam1.transform.localPosition = new Vector3(actionList[0], actionList[1], actionList[2]);
         Vector4 quat_cam1 = new Vector4(actionList[3], actionList[4], actionList[5], actionList[6]);
         quat_cam1.Normalize();
-        cam1.transform.rotation = new Quaternion(quat_cam1[0], quat_cam1[1], quat_cam1[2], quat_cam1[3]);
+        cam1.transform.localRotation = new Quaternion(quat_cam1[0], quat_cam1[1], quat_cam1[2], quat_cam1[3]);
         cam1BackgroundColor.r = actionList[7];
         cam1BackgroundColor.g = actionList[8];
         cam1BackgroundColor.b = actionList[9];
@@ -57,7 +58,7 @@ public class AgentCallback : Agent {
         cam2.transform.localPosition = new Vector3(actionList[10], actionList[11], actionList[12]);
         Vector4 quat_cam2 = new Vector4(actionList[13], actionList[14], actionList[15], actionList[16]);
         quat_cam2.Normalize();
-        cam2.transform.rotation = new Quaternion(quat_cam2[0], quat_cam2[1], quat_cam2[2], quat_cam2[3]);
+        cam2.transform.localRotation = new Quaternion(quat_cam2[0], quat_cam2[1], quat_cam2[2], quat_cam2[3]);
         cam2BackgroundColor.r = actionList[17];
         cam2BackgroundColor.g = actionList[18];
         cam2BackgroundColor.b = actionList[19];
@@ -67,13 +68,19 @@ public class AgentCallback : Agent {
         cube.transform.localPosition = new Vector3(actionList[20], actionList[21], actionList[22]);
         Vector4 quat_cube = new Vector4(actionList[23], actionList[24], actionList[25], actionList[26]);
         quat_cube.Normalize();
-        cube.transform.rotation = new Quaternion(quat_cube[0], quat_cube[1], quat_cube[2], quat_cube[3]);
+        cube.transform.localRotation = new Quaternion(quat_cube[0], quat_cube[1], quat_cube[2], quat_cube[3]);
+
+        // set the light source pose
+        lightSource.transform.localPosition = new Vector3(actionList[27], actionList[28], actionList[29]);
+        Vector4 quat_light = new Vector4(actionList[30], actionList[31], actionList[32], actionList[33]);
+        quat_light.Normalize();
+        lightSource.transform.localRotation = new Quaternion(quat_light[0], quat_light[1], quat_light[2], quat_light[3]);
 
         // set the hand states
         // WARNING: the order of the hand joints is breadth-first in the finger order middle, thumb, ring, index!
         // For instance, the first 4 joints are the base joints of the middle, thumb, ring, and index fingers. Then,
         // the next 4 joints are the medial joints in the same order, and so on.
-        hand.SetJointPositions(actionList.GetRange(27, rotationalJoints)); // Set joint positions
+        hand.SetJointPositions(actionList.GetRange(33, rotationalJoints)); // Set joint positions
 
         // concluding
         SetReward(1f); // arbitrary unused reward

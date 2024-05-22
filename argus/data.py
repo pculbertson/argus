@@ -156,7 +156,7 @@ class AugmentationConfig:
     # flags
     color_jiggle: bool = True
     planckian_jitter: bool = True
-    random_erasing: bool = True
+    random_erasing: bool = False
     blur: bool = True
 
 
