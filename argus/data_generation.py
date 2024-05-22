@@ -80,6 +80,33 @@ def generate_random_camera_poses(
     return cam_poses
 
 
+def generate_random_light_source_poses(n_agents: int) -> np.ndarray:
+    """Generates random light source poses for n_agents different agents.
+
+    Note that these poses are expressed in Unity's y-up and left-handed coordinate system.
+
+    Args:
+        n_agents: Number of agents in the environment.
+
+    Returns:
+        light_poses: Random light source poses for n_agents. Shape=(n_agents, 7), where the last 4 elements are the
+            quaternion expressed in xyzw convention.
+    """
+    # translations
+    x = np.random.uniform(-0.254, 0.254, size=n_agents)  # +/- 10 inches
+    z = np.random.uniform(-0.254, 0.254, size=n_agents)  # +/- 10 inches
+    y = np.random.uniform(2.0, 3.0, size=n_agents)  # 2-3m, this is height in Unity
+
+    # rotations
+    rot_x_deg = np.random.uniform(30.0, 150.0, size=n_agents)  # 30-150 degrees
+    rot_y_deg = np.random.uniform(0.0, 360.0, size=n_agents)  # 0-360 degrees
+    rot_z_deg = np.random.uniform(-60.0, -60.0, size=n_agents)  # +/- 60 degrees
+    quat_xyzw = R.from_euler("XYZ", np.stack([rot_x_deg, rot_y_deg, rot_z_deg], axis=-1), degrees=True).as_quat()
+
+    light_poses = np.stack([x, y, z, quat_xyzw[:, 0], quat_xyzw[:, 1], quat_xyzw[:, 2], quat_xyzw[:, 3]], axis=-1)
+    return light_poses
+
+
 @dataclass
 class GenerateDataConfig:
     """The config for generating the data.
@@ -114,7 +141,7 @@ class GenerateDataConfig:
     cam2_nominal: Optional[np.ndarray] = None
     bounds_trans: float = 0.01
     quat_stdev: float = 0.05
-    cam_rgb_range: tuple[float] = (0.0, 1.0)
+    cam_rgb_range: tuple[float] = (0.5, 1.0)
     train_frac: float = 0.9
     n_file_split: int = 2000
 
@@ -232,6 +259,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
             bounds_trans=bounds_trans,
             quat_stdev=quat_stdev,
         )  # (n_agents, 7)
+        light_poses = generate_random_light_source_poses(n_agents)  # (n_agents, 7)
 
         action = np.zeros((n_agents, expected_action_size))
         action[:, :7] = cam1_poses
@@ -239,7 +267,8 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         action[:, 10:17] = cam2_poses
         action[:, 17:20] = np.random.uniform(*cam_rgb_range, size=(n_agents, 3))
         action[:, 20:27] = cube_poses_batch
-        action[:, 27:] = convert_mjpc_q_leap_to_unity(q_leap)
+        action[:, 27:34] = light_poses
+        action[:, 34:50] = convert_mjpc_q_leap_to_unity(q_leap)
 
         # advancing the Unity sim and rendering out observations
         action_tuple = ActionTuple(continuous=action)
