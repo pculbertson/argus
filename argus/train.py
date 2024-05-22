@@ -203,7 +203,6 @@ def train(cfg: TrainConfig) -> None:
             cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)  # quats are (x, y, z, w)
             if cfg.use_augmentation:
                 _images = train_augmentation(images.reshape(-1, 3, cfg.model_config.H, cfg.model_config.W))
-
                 images = _images.reshape(-1, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W)
 
             # forward pass

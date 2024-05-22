@@ -156,7 +156,7 @@ class AugmentationConfig:
     # flags
     color_jiggle: bool = True
     planckian_jitter: bool = True
-    random_erasing: bool = True
+    random_erasing: bool = False
     blur: bool = True
 
 
@@ -215,7 +215,7 @@ if __name__ == "__main__":
     import cv2
     import tyro
 
-    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data_medium.hdf5")
+    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data_lights_medium.hdf5")
     augmentation_cfg = tyro.cli(AugmentationConfig)
     train_dataset = CameraCubePoseDataset(dataset_cfg, train=True)
 

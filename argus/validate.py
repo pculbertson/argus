@@ -102,7 +102,7 @@ def validate(cfg: ValConfig) -> None:
     model.eval()
 
     # loading augmentation
-    augmentation = Augmentation(aug_cfg)
+    augmentation = Augmentation(aug_cfg, train=use_train)
     augmentation.to(device)
 
     # dataloader
