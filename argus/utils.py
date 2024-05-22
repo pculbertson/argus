@@ -238,7 +238,7 @@ def convert_to_SE3(pose_repr: torch.Tensor, model: torch.nn.Module) -> pp.LieTen
         poses_top = torch.cat([rot, trans[..., None]], dim=-1)  # (B, 3, 4)
         poses_bot = (
             torch.tensor([0.0, 0.0, 0.0, 1.0], device=pose_repr.device)
-            .view(1, 1, 4)
+            .view(*((1,) * len(poses_top.shape[:-1])), 4)
             .expand(*poses_top.shape[:-2], 1, 4)
         )
         poses = torch.cat([poses_top, poses_bot], dim=-2)
