@@ -4,7 +4,6 @@ import pytest
 import torch
 
 from argus.utils import (
-    convert_mjpc_q_leap_to_unity,
     convert_pose_mjpc_to_unity,
     convert_pose_unity_to_mjpc,
     convert_unity_quat_to_euler,

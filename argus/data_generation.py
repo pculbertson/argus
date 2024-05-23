@@ -16,7 +16,7 @@ from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
 
 from argus import ROOT
-from argus.utils import convert_mjpc_q_leap_to_unity, convert_pose_mjpc_to_unity, convert_pose_unity_to_mjpc
+from argus.utils import convert_pose_mjpc_to_unity, convert_pose_unity_to_mjpc
 
 
 def unity_setup(env_exe_path: str, n_agents: int = 10) -> None:
@@ -269,7 +269,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         action[:, 17:20] = np.random.uniform(*cam_rgb_range, size=(n_agents, 3))
         action[:, 20:27] = cube_poses_batch
         action[:, 27:34] = light_poses
-        action[:, 34:50] = convert_mjpc_q_leap_to_unity(q_leap)
+        action[:, 34:50] = q_leap
 
         # advancing the Unity sim and rendering out observations
         action_tuple = ActionTuple(continuous=action)

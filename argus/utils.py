@@ -106,42 +106,6 @@ def convert_unity_quat_to_euler(quat: np.ndarray) -> np.ndarray:
     return euler
 
 
-def convert_mjpc_q_leap_to_unity(q_mjpc: np.ndarray) -> np.ndarray:
-    """Converts the hand configuration from mjpc's to Unity's coordinate system.
-
-    * The mjpc convention is depth-first with finger order index, middle, ring, thumb.
-    * The Unity convention is breadth-first with finger order middle, thumb, ring, and index.
-
-    Args:
-        q_mjpc: The hand state in Mujoco's coordinate system. Shape=(..., 16).
-
-    Returns:
-        q_unity: The hand state in Unity's coordinate system. Shape=(..., 16).
-    """
-    new_idxs = np.array(
-        [
-            4,  # mcp joint indices on the mjpc LEAP hand
-            12,
-            8,
-            0,
-            5,  # pip joint indices on the mjpc LEAP hand
-            13,
-            9,
-            1,
-            6,  # dip joint indices on the mjpc LEAP hand
-            14,
-            10,
-            2,
-            7,  # fingertip joints
-            15,
-            11,
-            3,
-        ]
-    )
-    q_unity = q_mjpc[..., new_idxs]
-    return q_unity
-
-
 def xyzwxyz_to_xyzxyzw_SE3(xyzwxyz: torch.Tensor) -> torch.Tensor:
     """Converts a tensor of 7d poses with quats from (w, x, y, z) to (x, y, z, w) order.
 
