@@ -199,7 +199,7 @@ def train(cfg: TrainConfig) -> None:
         avg_loss_in_epoch = []
         for example in tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{cfg.n_epochs}", total=len(train_dataloader)):
             # loading data
-            images = example["images"].to(cfg.device).to(torch.float32)
+            images = example["images"].to(cfg.device).to(torch.float32)  # (B, 6, H, W)
             cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)  # quats are (x, y, z, w)
             if cfg.use_augmentation:
                 _images = train_augmentation(images.reshape(-1, 3, cfg.model_config.H, cfg.model_config.W))
