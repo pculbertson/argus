@@ -90,22 +90,24 @@ public class AgentCallback : Agent {
     public override void Heuristic(in ActionBuffers actionsOut) {
         // heuristic used entirely for debugging
         var continuousActions = actionsOut.ContinuousActions;
-        for (int ii = 0; ii < continuousActions.Length; ii++) {
-            // if colors, only generate numbers in the [0, 1] range
-            if (ii == 7 || ii == 8 || ii == 9 || ii == 17 || ii == 18 || ii == 19) {
-                continuousActions[ii] = Random.Range(0.0f, 1.0f);
-            } else {
-                continuousActions[ii] = Random.Range(-0.3f, 0.3f);
-            }
-        }
-
-        // debug: check joint ordering
         // for (int ii = 0; ii < continuousActions.Length; ii++) {
-        //     if (ii == 36) {
-        //         continuousActions[ii] = 1.57f;
+        //     // if colors, only generate numbers in the [0, 1] range
+        //     if (ii == 7 || ii == 8 || ii == 9 || ii == 17 || ii == 18 || ii == 19) {
+        //         continuousActions[ii] = Random.Range(0.0f, 1.0f);
         //     } else {
-        //         continuousActions[ii] = 0.0f;
+        //         continuousActions[ii] = Random.Range(-0.3f, 0.3f);
         //     }
         // }
+
+        // debug: check joint ordering
+        for (int ii = 0; ii < continuousActions.Length; ii++) {
+            // if (ii == 37) {
+            //     continuousActions[ii] = 1.57f;
+            // } else {
+            //     continuousActions[ii] = 0.0f;
+            // }
+            // Print each joint name
+            Debug.Log(hand.jointName);
+        }
     }
 }
