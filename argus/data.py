@@ -86,6 +86,7 @@ class CameraCubePoseDataset(Dataset):
             train: Whether to load the training or test set. Default=True.
         """
         dataset_path = cfg.dataset_path
+
         # case 1: single file
         if Path(dataset_path).suffix:
             with h5py.File(dataset_path, "r") as f:
@@ -104,43 +105,67 @@ class CameraCubePoseDataset(Dataset):
                 self.cube_poses = pp.SE3(xyzwxyz_to_xyzxyzw_SE3(_cube_poses))  # pp quat order is (x, y, z, w)
                 self.images = dataset["images"][()]  # (n_data, n_cams, 3, H, W)
 
+                # variables for dataloading
+                self.multi_file = False
+                self.num_images = len(self.images)
+                self.num_images_per_file = self.num_images
+
         # case 2: multiple files
         else:
-            # iterate over all files in the directory
-            for i, file in enumerate(os.listdir(dataset_path)):
+            self.multi_file = True
+            self.num_images = 0
+            file_list = [file for file in os.listdir(dataset_path) if file.endswith(".hdf5")]
+            for i, file in enumerate(file_list):
                 with h5py.File(dataset_path + "/" + file, "r") as f:
                     if train:
                         dataset = f["train"]
+                        self.num_images += len(f["train"]["images"])
                     else:
                         dataset = f["test"]
-
-                    # extracting attributes
-                    self.n_cams = f.attrs["n_cams"]
-                    self.W = f.attrs["W"]
-                    self.H = f.attrs["H"]
-
-                    # grabbing the data
+                        self.num_images += len(f["test"]["images"])
                     _cube_poses = torch.from_numpy(dataset["cube_poses"][()])
+
                     if i == 0:
+                        self.n_cams = f.attrs["n_cams"]
+                        self.W = f.attrs["W"]
+                        self.H = f.attrs["H"]
                         self.cube_poses = pp.SE3(xyzwxyz_to_xyzxyzw_SE3(_cube_poses))
-                        self.images = dataset["images"][()]
+                        self.num_images_per_file = self.num_images
                     else:
                         self.cube_poses = torch.cat(
                             (self.cube_poses, pp.SE3(xyzwxyz_to_xyzxyzw_SE3(_cube_poses))), dim=0
                         )
-                        self.images = np.concatenate((self.images, dataset["images"][()]), axis=0)
+
+        # storing attributes for later
+        self.dataset_path = dataset_path
+        self.train = train
 
     def __len__(self) -> int:
         """Number of datapoints, i.e., (N image, cube pose) tuples."""
-        return len(self.images)
+        return self.num_images
 
     def __getitem__(self, idx: int) -> dict:
         """Returns the idx-th datapoint."""
-        images = torch.tensor(self.images[idx]).reshape((-1, self.H, self.W))  # (n_cams * 3, H, W)
-        return {
-            "images": images.to(torch.float32),
-            "cube_pose": self.cube_poses[idx],
-        }
+        if self.multi_file:
+            file_idx = idx // self.num_images_per_file
+            idx_in_file = idx % self.num_images_per_file
+            with h5py.File(self.dataset_path + f"/{Path(self.dataset_path).stem}_{file_idx}.hdf5", "r") as f:
+                if self.train:
+                    dataset = f["train"]
+                else:
+                    dataset = f["test"]
+
+                imgs = torch.tensor(dataset["images"][idx_in_file]).reshape((-1, self.H, self.W))  # (n_cams * 3, H, W)
+                return {
+                    "images": imgs.to(torch.float32),
+                    "cube_pose": self.cube_poses[idx],
+                }
+        else:
+            imgs = torch.tensor(self.images[idx]).reshape((-1, self.H, self.W))  # (n_cams * 3, H, W)
+            return {
+                "images": imgs.to(torch.float32),
+                "cube_pose": self.cube_poses[idx],
+            }
 
 
 @dataclass(frozen=True)
@@ -215,7 +240,9 @@ if __name__ == "__main__":
     import cv2
     import tyro
 
-    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data_short.hdf5")
+    dataset_cfg = CameraCubePoseDatasetConfig(
+        dataset_path=ROOT + "/outputs/data/cube_unity_data_large/cube_unity_data_large_0.hdf5"
+    )
     augmentation_cfg = tyro.cli(AugmentationConfig)
     train_dataset = CameraCubePoseDataset(dataset_cfg, train=True)
 

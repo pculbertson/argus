@@ -113,11 +113,23 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
     print("Loading all data into memory...")
     try:
         train_dataset = CameraCubePoseDataset(cfg.dataset_config, train=True)
-        train_dataloader = DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True)
+        if train_dataset.multi_file:
+            num_workers = 10  # TODO(ahl): do this in a smarter way
+        else:
+            num_workers = 0
+        train_dataloader = DataLoader(
+            train_dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=num_workers, pin_memory=True
+        )
         train_augmentation = Augmentation(cfg.augmentation_config, train=True).to(cfg.device)
 
         val_dataset = CameraCubePoseDataset(cfg.dataset_config, train=False)
-        val_dataloader = DataLoader(val_dataset, batch_size=cfg.batch_size, shuffle=False)
+        if val_dataset.multi_file:
+            num_workers = 10  # TODO(ahl): do this in a smarter way
+        else:
+            num_workers = 0
+        val_dataloader = DataLoader(
+            val_dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=num_workers, pin_memory=True
+        )
         val_augmentation = Augmentation(cfg.augmentation_config, train=False).to(cfg.device)
 
     except RuntimeError:
@@ -200,7 +212,7 @@ def train(cfg: TrainConfig) -> None:
         for example in tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{cfg.n_epochs}", total=len(train_dataloader)):
             # loading data
             images = example["images"].to(cfg.device).to(torch.float32)  # (B, 6, H, W)
-            cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)  # quats are (x, y, z, w)
+            cube_pose_SE3 = pp.SE3(example["cube_pose"].to(cfg.device).to(torch.float32))  # quats are (x, y, z, w)
             if cfg.use_augmentation:
                 _images = train_augmentation(images.reshape(-1, 3, cfg.model_config.H, cfg.model_config.W))
                 images = _images.reshape(-1, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W)
@@ -229,7 +241,7 @@ def train(cfg: TrainConfig) -> None:
                 val_loss = []
                 for example in val_dataloader:
                     images = example["images"].to(cfg.device).to(torch.float32)
-                    cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)
+                    cube_pose_SE3 = pp.SE3(example["cube_pose"].to(cfg.device).to(torch.float32))
                     if cfg.use_augmentation:
                         _images = val_augmentation(images.reshape(-1, 3, cfg.model_config.H, cfg.model_config.W))
                         images = _images.reshape(
