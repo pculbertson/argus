@@ -220,6 +220,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
     n_episodes = cube_poses_all.shape[0] // n_agents
     _cube_poses_truncated = cube_poses_all[: n_agents * n_episodes, :]  # (n_agents * n_episodes, 7)
     cube_poses_truncated = convert_pose_unity_to_mjpc(_cube_poses_truncated)  # MJPC coords
+    q_leap_truncated = q_leap_all[: n_agents * n_episodes, :]  # (n_agents * n_episodes, 16)
 
     # generating data
     env, behavior_name, expected_action_size = unity_setup(env_exe_path, n_agents=n_agents)
@@ -303,6 +304,9 @@ def generate_data(cfg: GenerateDataConfig) -> None:
             idx_end = n_file_split * (idx_file + 1) if idx_file < n_files - 1 else n_episodes * n_agents
             cube_poses_train = cube_poses_truncated[idx_start:idx_end][idxs][:train_test_idx]
             cube_poses_test = cube_poses_truncated[idx_start:idx_end][idxs][train_test_idx:]
+
+            q_leap_train = q_leap_truncated[idx_start:idx_end][idxs][:train_test_idx]
+            q_leap_test = q_leap_truncated[idx_start:idx_end][idxs][train_test_idx:]
             idx_file += 1
 
             with h5py.File(p, "w") as f:
@@ -313,10 +317,12 @@ def generate_data(cfg: GenerateDataConfig) -> None:
                 train = f.create_group("train")
                 train.create_dataset("images", data=images_train)
                 train.create_dataset("cube_poses", data=cube_poses_train)
+                train.create_dataset("q_leap", data=q_leap_train)
 
                 test = f.create_group("test")
                 test.create_dataset("images", data=images_test)
                 test.create_dataset("cube_poses", data=cube_poses_test)
+                test.create_dataset("q_leap", data=q_leap_test)
 
             images = []
 
