@@ -19,6 +19,7 @@ dependencies = [
     "h5py>=3.11.0",
     "kornia>=0.7.2",
     "matplotlib>=3.5.2",
+    "mujoco>=3.1.5",
     "numpy>=1.21.2",
     "pypose>=0.6.7",
     "scipy>=1.10.1",

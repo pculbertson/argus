@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using Unity.MLAgents;
 using Unity.MLAgents.Sensors;
@@ -7,14 +8,13 @@ using Unity.MLAgents.Actuators;
 
 public class AgentCallback : Agent {
     private ArticulationBody hand;
+    private Dictionary<int, int> jointMap;  // mjpc joint index -> unity joint index
     private Rigidbody cube;
     private Camera cam1;
     private Camera cam2;
     private Color cam1BackgroundColor;
     private Color cam2BackgroundColor;
     private Light lightSource;
-
-    private int rotationalJoints = 16;
 
     // Start is called before the first frame update
     void Start() {
@@ -25,6 +25,22 @@ public class AgentCallback : Agent {
         cam2 = this.GetComponentsInChildren<Camera>()[1];
         cam2.clearFlags = CameraClearFlags.SolidColor;
         lightSource = this.GetComponentInChildren<Light>();
+
+        // setting up the dictionary for desired joint order
+        jointMap = new Dictionary<int, int>();
+        ArticulationBody[] allJoints = GetComponentsInChildren<ArticulationBody>();
+        List<string> jointNames = new List<string>() {
+            "mcp_joint", "pip", "dip", "fingertip",
+            "mcp_joint_2", "pip_2", "dip_2", "fingertip_2",
+            "mcp_joint_3", "pip_3", "dip_3", "fingertip_3",
+            "pip_4", "thumb_pip", "thumb_dip", "thumb_fingertip",
+        };  // order of joints in mjpc by name
+        foreach (var joint in allJoints) {
+            if (jointNames.Contains(joint.name)) {
+                int idx = jointNames.IndexOf(joint.name);  // get index in jointNames that matches joint.name
+                jointMap[idx] = joint.index - 2;  // the mount and palm joints are not counted, come first
+            }
+        }
     }
 
     public override void OnEpisodeBegin() { /** do nothing **/ }
@@ -32,9 +48,10 @@ public class AgentCallback : Agent {
     public override void CollectObservations(VectorSensor sensor) { /** do nothing **/ }
 
     public override void OnActionReceived(ActionBuffers actionBuffers) {
-        // there are a total of 2 * 10 + 7 + 16 = 43 actions
+        // there are a total of 2 * 10 + 7 + 7 + 16 = 50 actions
         // * each of the two cameras has 7 DOFs and 3 exposed colors
         // * the cube has 7 DOFs
+        // * the light pose has 7 DOFs
         // * the hand has 16 DOFs
         // we assume that poses are in the order (x, y, z, qx, qy, qz, qw), which is Unity's convention.
 
@@ -77,10 +94,12 @@ public class AgentCallback : Agent {
         lightSource.transform.localRotation = new Quaternion(quat_light[0], quat_light[1], quat_light[2], quat_light[3]);
 
         // set the hand states
-        // WARNING: the order of the hand joints is breadth-first in the finger order middle, thumb, ring, index!
-        // For instance, the first 4 joints are the base joints of the middle, thumb, ring, and index fingers. Then,
-        // the next 4 joints are the medial joints in the same order, and so on.
-        hand.SetJointPositions(actionList.GetRange(33, rotationalJoints)); // Set joint positions
+        var jointPositions = new float[16];
+        foreach (var pair in jointMap) {
+            jointPositions[pair.Value] = actionList[34 + pair.Key];
+        }
+
+        hand.SetJointPositions(jointPositions.ToList()); // Set joint positions
 
         // concluding
         SetReward(1f); // arbitrary unused reward
@@ -90,24 +109,24 @@ public class AgentCallback : Agent {
     public override void Heuristic(in ActionBuffers actionsOut) {
         // heuristic used entirely for debugging
         var continuousActions = actionsOut.ContinuousActions;
-        // for (int ii = 0; ii < continuousActions.Length; ii++) {
-        //     // if colors, only generate numbers in the [0, 1] range
-        //     if (ii == 7 || ii == 8 || ii == 9 || ii == 17 || ii == 18 || ii == 19) {
-        //         continuousActions[ii] = Random.Range(0.0f, 1.0f);
-        //     } else {
-        //         continuousActions[ii] = Random.Range(-0.3f, 0.3f);
-        //     }
-        // }
+        for (int ii = 0; ii < continuousActions.Length; ii++) {
+            // if colors, only generate numbers in the [0, 1] range
+            if (ii == 7 || ii == 8 || ii == 9 || ii == 17 || ii == 18 || ii == 19) {
+                continuousActions[ii] = Random.Range(0.0f, 1.0f);
+            } else {
+                continuousActions[ii] = Random.Range(-0.3f, 0.3f);
+            }
+        }
 
         // debug: check joint ordering
-        for (int ii = 0; ii < continuousActions.Length; ii++) {
-            // if (ii == 37) {
-            //     continuousActions[ii] = 1.57f;
-            // } else {
-            //     continuousActions[ii] = 0.0f;
-            // }
-            // Print each joint name
-            Debug.Log(hand.jointName);
-        }
+        // for (int ii = 0; ii < continuousActions.Length; ii++) {
+        //     if (ii == 34) {  // this sets the wrong finger!!!
+        //         continuousActions[ii] = 1.57f;
+        //     } else {
+        //         continuousActions[ii] = 0.0f;
+        //     }
+        //     // Print each joint name
+        //     // Debug.Log(hand.jointName);
+        // }
     }
 }
