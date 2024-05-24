@@ -110,14 +110,16 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
     np.random.seed(cfg.random_seed)
 
     # dataloaders and augmentations
+    # comment on num_workers setting: discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
     print("Creating dataloaders...")
+    NUM_GPU = torch.cuda.device_count()
     try:
         train_dataset = CameraCubePoseDataset(cfg.dataset_config, train=True)
-        train_dataloader = DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True)
+        train_dataloader = DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=4 * NUM_GPU)
         train_augmentation = Augmentation(cfg.augmentation_config, train=True).to(cfg.device)
 
         val_dataset = CameraCubePoseDataset(cfg.dataset_config, train=False)
-        val_dataloader = DataLoader(val_dataset, batch_size=cfg.batch_size, shuffle=False)
+        val_dataloader = DataLoader(val_dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=4 * NUM_GPU)
         val_augmentation = Augmentation(cfg.augmentation_config, train=False).to(cfg.device)
 
     except RuntimeError:
