@@ -6,8 +6,8 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 
-from robomimic.models.obs_core import VisualCore
-from robomimic.models.base_nets import ResNet18Conv, SpatialSoftmax
+# from robomimic.models.obs_core import VisualCore
+# from robomimic.models.base_nets import ResNet18Conv, SpatialSoftmax
 
 
 @dataclass(frozen=True)
@@ -16,8 +16,6 @@ class NCameraCNNConfig:
 
     Fields:
         n_cams: The number of cameras in the scene.
-        W: The width of the input images.
-        H: The height of the input images.
         resnet_output_dim: The output dimension of the ResNet model (before final FC layer).
     """
 
@@ -35,7 +33,7 @@ class NCameraCNN(nn.Module):
     the model without error.
     """
 
-    def __init__(self, cfg: Optional[NCameraCNNConfig] = None, W: int = 672, H: int = 376) -> None:
+    def __init__(self, cfg: Optional[NCameraCNNConfig] = None) -> None:
         """Initialize the CNN.
 
         Args:
@@ -47,8 +45,6 @@ class NCameraCNN(nn.Module):
         if cfg is None:
             cfg = NCameraCNNConfig()
         self.num_channels = 3 * cfg.n_cams  # RGB-only for each cam, all channels concatenated
-        self.H = H
-        self.W = W
         self.resnet_output_dim = cfg.resnet_output_dim
 
         self.n_cams = cfg.n_cams
@@ -71,18 +67,18 @@ class NCameraCNN(nn.Module):
         """Forward pass through the CNN.
 
         Args:
-            x: The input images of shape (B, 3 * n_cams, W, H), concatenated along the channel dimension.
+            x: The input images of shape (B, 3 * n_cams, H, W), concatenated along the channel dimension.
 
         Returns:
             pose: The predicted pose of the cube in the scene expressed in se(3). To get the pose in SE(3), apply the
                 exponential map to it, e.g., `pose.Exp()`.
         """
-        assert len(x.shape) == 4, "The input images must be of shape (B, C, W, H)! If B=1, add a dummy dimension."
+        assert len(x.shape) == 4, "The input images must be of shape (B, C, H, W)! If B=1, add a dummy dimension."
 
         B, _, _, _ = x.shape
 
         # Split the input images into n_cams.
-        x = x.reshape(-1, 3, self.W, self.H)
+        x = x.reshape(-1, 3, *(x.shape[-2:]))  # (B * n_cams, 3, H, W)
 
         # Forward pass through the resnet.
         x = self.resnet(x)
@@ -94,54 +90,55 @@ class NCameraCNN(nn.Module):
         return self.output_mlp(x)
 
 
-class NCameraEncoder(nn.Module):
-    def __init__(self, cfg: Optional[NCameraCNNConfig] = None) -> None:
-        """Initialize the CNN.
+"""Robomimic model. Commented out for now because robomimic install breaks protobuf."""
+# class NCameraEncoder(nn.Module):
+#     def __init__(self, cfg: Optional[NCameraCNNConfig] = None) -> None:
+#         """Initialize the CNN.
 
-        Args:
-            cfg: The configuration for the model. If None, the default configuration is used.
-        """
-        super().__init__()
-        self.backbone = VisualCore(
-            input_shape=(3, cfg.W, cfg.H),
-            backbone_class="ResNet18Conv",  # use ResNet18 as the visualcore backbone
-            backbone_kwargs={"pretrained": True, "input_coord_conv": False},  # kwargs for the ResNet18Conv class
-            pool_class="SpatialSoftmax",  # use spatial softmax to regularize the model output
-            pool_kwargs={"num_kp": 32},  # kwargs for the SpatialSoftmax --- use 32 keypoints
-            flatten=True,  # flatten the output of the spatial softmax layer
-            feature_dimension=cfg.resnet_output_dim,  # project the flattened feature into a 64-dim vector through a linear layer
-        )
+#         Args:
+#             cfg: The configuration for the model. If None, the default configuration is used.
+#         """
+#         super().__init__()
+#         self.backbone = VisualCore(
+#             input_shape=(3, cfg.W, cfg.H),
+#             backbone_class="ResNet18Conv",  # use ResNet18 as the visualcore backbone
+#             backbone_kwargs={"pretrained": True, "input_coord_conv": False},  # kwargs for the ResNet18Conv class
+#             pool_class="SpatialSoftmax",  # use spatial softmax to regularize the model output
+#             pool_kwargs={"num_kp": 32},  # kwargs for the SpatialSoftmax --- use 32 keypoints
+#             flatten=True,  # flatten the output of the spatial softmax layer
+#             feature_dimension=cfg.resnet_output_dim,  # project the flattened feature into a 64-dim vector through a linear layer
+#         )
 
-        if cfg is None:
-            cfg = NCameraCNNConfig()
+#         if cfg is None:
+#             cfg = NCameraCNNConfig()
 
-        # Store config.
-        self.H = cfg.H
-        self.W = cfg.W
-        self.resnet_output_dim = cfg.resnet_output_dim
-        self.n_cams = cfg.n_cams
+#         # Store config.
+#         self.H = cfg.H
+#         self.W = cfg.W
+#         self.resnet_output_dim = cfg.resnet_output_dim
+#         self.n_cams = cfg.n_cams
 
-        self.output_mlp = nn.Sequential(
-            nn.Linear(self.n_cams * cfg.resnet_output_dim, 128),
-            nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Linear(128, 6),
-        )
+#         self.output_mlp = nn.Sequential(
+#             nn.Linear(self.n_cams * cfg.resnet_output_dim, 128),
+#             nn.ReLU(),
+#             nn.Linear(128, 128),
+#             nn.ReLU(),
+#             nn.Linear(128, 6),
+#         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        assert len(x.shape) == 4, "The input images must be of shape (B, C, W, H)! If B=1, add a dummy dimension."
+#     def forward(self, x: torch.Tensor) -> torch.Tensor:
+#         assert len(x.shape) == 4, "The input images must be of shape (B, C, W, H)! If B=1, add a dummy dimension."
 
-        B, _, _, _ = x.shape
+#         B, _, _, _ = x.shape
 
-        # Split the input images into n_cams.
-        x = x.reshape(-1, 3, self.W, self.H)
+#         # Split the input images into n_cams.
+#         x = x.reshape(-1, 3, self.W, self.H)
 
-        # Forward pass through the resnet.
-        x = self.backbone(x)
+#         # Forward pass through the resnet.
+#         x = self.backbone(x)
 
-        # Reshape the output to (B, n_cams * resnet_output_dim).
-        x = x.reshape(B, self.n_cams * self.resnet_output_dim)
-        x = nn.ReLU()(x)
+#         # Reshape the output to (B, n_cams * resnet_output_dim).
+#         x = x.reshape(B, self.n_cams * self.resnet_output_dim)
+#         x = nn.ReLU()(x)
 
-        return self.output_mlp(x)
+#         return self.output_mlp(x)

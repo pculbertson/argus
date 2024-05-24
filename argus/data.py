@@ -84,7 +84,6 @@ class CameraCubePoseDataset(Dataset):
             train: Whether to load the training or test set. Default=True.
         """
         dataset_path = cfg.dataset_path
-        self.dataset_path = dataset_path
         with h5py.File(dataset_path + f"/{Path(dataset_path).stem}.hdf5", "r") as f:
             if train:
                 dataset = f["train"]
@@ -93,8 +92,8 @@ class CameraCubePoseDataset(Dataset):
 
             # extracting attributes
             self.n_cams = f.attrs["n_cams"]
-            self.W = f.attrs["W"]
-            self.H = f.attrs["H"]
+            self.W = cfg.W
+            self.H = cfg.H
 
             # grabbing the data
             _cube_poses = torch.from_numpy(dataset["cube_poses"][()])  # original quat order is (w, x, y, z)
@@ -103,15 +102,16 @@ class CameraCubePoseDataset(Dataset):
             _img_stems = dataset["img_stems"][()]
             self.img_stems = [byte_string.decode("utf-8") for byte_string in _img_stems]
 
+        # assigning useful attributes
+        self.dataset_path = dataset_path
+        self.center_crop = cfg.center_crop
+
     def __len__(self) -> int:
         """Number of datapoints, i.e., (N image, cube pose) tuples."""
         return self.cube_poses.shape[0]
 
     def __getitem__(self, idx: int) -> dict:
         """Returns the idx-th datapoint."""
-        images = torch.tensor(self.images[idx]).reshape((-1, self.H_raw, self.W_raw))  # (n_cams * 3, H, W)
-        if self.center_crop:
-            images = kornia.geometry.transform.center_crop(images.unsqueeze(0), (self.H, self.W)).squeeze(0)
         img_stem = self.img_stems[idx]
         img_a = Image.open(f"{self.dataset_path}/{img_stem}_a.png")  # (H, W, 3)
         img_b = Image.open(f"{self.dataset_path}/{img_stem}_b.png")  # (H, W, 3)
