@@ -39,6 +39,7 @@ class TrainConfig:
         n_epochs: The number of epochs.
         device: The device to train on.
         max_grad_norm: The maximum gradient norm.
+        num_gpus: The number of GPUs to train with.
         random_seed: The random seed.
         val_epochs: The number of epochs between validation.
         print_epochs: The number of epochs between printing.
@@ -59,6 +60,7 @@ class TrainConfig:
     n_epochs: int = 100
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     max_grad_norm: float = 1.0
+    num_gpus: int = torch.cuda.device_count()
     random_seed: int = 42
 
     # validation, printing, and saving
@@ -83,6 +85,11 @@ class TrainConfig:
                 self.save_dir = ROOT + "/" + self.save_dir
             else:
                 os.makedirs(self.save_dir, exist_ok=True)
+
+        assert self.num_gpus > 0, "The number of GPUs must be greater than 0!"
+        assert (
+            self.num_gpus <= torch.cuda.device_count()
+        ), "The number of GPUs must be less than or equal to the number of GPUs on the system!"
 
 
 def geometric_loss_fn(pred: torch.Tensor, target: pp.LieTensor) -> torch.Tensor:
@@ -112,14 +119,15 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
     # dataloaders and augmentations
     # comment on num_workers setting: discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
     print("Creating dataloaders...")
-    NUM_GPU = torch.cuda.device_count()
     try:
         train_dataset = CameraCubePoseDataset(cfg.dataset_config, train=True)
-        train_dataloader = DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=4 * NUM_GPU)
+        train_dataloader = DataLoader(
+            train_dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=4 * cfg.num_gpus
+        )
         train_augmentation = Augmentation(cfg.augmentation_config, train=True).to(cfg.device)
 
         val_dataset = CameraCubePoseDataset(cfg.dataset_config, train=False)
-        val_dataloader = DataLoader(val_dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=4 * NUM_GPU)
+        val_dataloader = DataLoader(val_dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=4 * cfg.num_gpus)
         val_augmentation = Augmentation(cfg.augmentation_config, train=False).to(cfg.device)
 
     except RuntimeError:
