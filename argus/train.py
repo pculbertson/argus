@@ -117,24 +117,23 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
     np.random.seed(cfg.random_seed)
 
     # dataloaders and augmentations
-    # comment on num_workers setting: discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
     print("Creating dataloaders...")
     try:
-        train_dataset = CameraCubePoseDataset(cfg.dataset_config, train=True)
+        train_dataset = CameraCubePoseDataset(cfg.dataset_config, cfg_aug=cfg.augmentation_config, train=True)
         train_dataloader = DataLoader(
-            train_dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=4 * cfg.num_gpus
+            train_dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=16 * cfg.num_gpus, pin_memory=True
         )
-        train_augmentation = Augmentation(cfg.augmentation_config, train=True).to(cfg.device)
 
-        val_dataset = CameraCubePoseDataset(cfg.dataset_config, train=False)
-        val_dataloader = DataLoader(val_dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=4 * cfg.num_gpus)
-        val_augmentation = Augmentation(cfg.augmentation_config, train=False).to(cfg.device)
+        val_dataset = CameraCubePoseDataset(cfg.dataset_config, cfg_aug=cfg.augmentation_config, train=False)
+        val_dataloader = DataLoader(
+            val_dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=16 * cfg.num_gpus, pin_memory=True
+        )
 
     except RuntimeError:
         print("Data too large to load into memory. Please consider using a larger machine or a smaller dataset!")
 
     # model
-    model = NCameraCNN(cfg.model_config, cfg.dataset_config.W, cfg.dataset_config.H).to(cfg.device)
+    model = NCameraCNN(cfg.model_config).to(cfg.device)
     if cfg.compile_model:
         model = torch.compile(model, mode="reduce-overhead")  # compiled model
         print("Compiling the model...")
@@ -178,9 +177,7 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
 
     return (
         train_dataloader,
-        train_augmentation,
         val_dataloader,
-        val_augmentation,
         model,
         optimizer,
         scheduler,
@@ -193,9 +190,7 @@ def train(cfg: TrainConfig) -> None:
     """Main training loop."""
     (
         train_dataloader,
-        train_augmentation,
         val_dataloader,
-        val_augmentation,
         model,
         optimizer,
         scheduler,
@@ -210,10 +205,7 @@ def train(cfg: TrainConfig) -> None:
         for example in tqdm(train_dataloader, desc="Iterations", total=len(train_dataloader), leave=False):
             # loading data
             images = example["images"].to(cfg.device).to(torch.float32)  # (B, 6, H, W)
-            cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)  # quats are (x, y, z, w)
-            if cfg.use_augmentation:
-                _images = train_augmentation(images.reshape(-1, 3, cfg.dataset_config.H, cfg.dataset_config.W))
-                images = _images.reshape(-1, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W)
+            cube_pose_SE3 = pp.SE3(example["cube_pose"].to(cfg.device).to(torch.float32))  # quats are (x, y, z, w)
 
             # forward pass
             cube_pose_pred_se3 = model(images)  # therefore, the predicted quats are (x, y, z, w)
@@ -239,12 +231,7 @@ def train(cfg: TrainConfig) -> None:
                 val_loss = []
                 for example in val_dataloader:
                     images = example["images"].to(cfg.device).to(torch.float32)
-                    cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)
-                    if cfg.use_augmentation:
-                        _images = val_augmentation(images.reshape(-1, 3, cfg.dataset_config.H, cfg.dataset_config.W))
-                        images = _images.reshape(
-                            -1, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W
-                        )
+                    cube_pose_SE3 = pp.SE3(example["cube_pose"].to(cfg.device).to(torch.float32))
                     cube_pose_pred_se3 = model(images)
                     losses = loss_fn(cube_pose_pred_se3, cube_pose_SE3)
                     val_loss.append(losses)
