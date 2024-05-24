@@ -21,7 +21,7 @@ class CameraCubePoseDatasetConfig:
 
     For all path fields, you can either specify an absolute path, a relative path (with respect to where you are
     currently calling the data generation function), or a local path RELATIVE TO THE ROOT OF THE PACKAGE IN YOUR SYSTEM!
-    For instance, if you pass "example_dir/data" to `dataset_path`, the hdf5 data will be loaded from
+    For instance, if you pass "example_dir/data" to `dataset_path`, the data will be loaded from
     /path/to/argus/example_dir/data/data.hdf5 and the image data will be from /path/to/argus/example_dir/data/img/.
 
     Args:
