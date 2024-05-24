@@ -113,6 +113,7 @@ def validate(cfg: ValConfig) -> None:
     losses = []
     for i, example in tqdm(enumerate(dataloader), total=len(dataloader)):
         # forward pass
+        breakpoint()
         images = example["images"].to(device).to(torch.float32)
         cube_pose_true_SE3 = example["cube_pose"].to(device).to(torch.float32)
         _images = augmentation(images.reshape(-1, 3, model_config.H, model_config.W))

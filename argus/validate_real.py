@@ -1,4 +1,8 @@
+import os
+
 from dataclasses import dataclass
+from argus.utils import get_pose, xyzxyzw_to_xyzwxyz_SE3
+from pathlib import Path
 
 import h5py
 import matplotlib.pyplot as plt
@@ -42,7 +46,7 @@ def validate_real(cfg: ValRealConfig) -> None:
     with h5py.File(cfg.real_data_path, "r") as f:
         images = f["images"]  # (num_images, 2, H, W, 3)
         H, W = images.shape[2], images.shape[3]
-        for img_pair in images:
+        for ii, img_pair in enumerate(images):
             long_img_np = img_pair.transpose(0, 3, 1, 2)
             long_img = torch.tensor(long_img_np, dtype=torch.float32).reshape((-1, H, W)).to(device)[None, ...]
             pred_pose_xyzw = get_pose(long_img, model)[0]  # (num_images, 7)
@@ -74,7 +78,11 @@ def validate_real(cfg: ValRealConfig) -> None:
             plt.imshow(pred_img2)
 
             plt.axis("off")
-            plt.show()
+            plt.suptitle(f"Pred pose {ii}: {pred_pose}")
+            output_dir = Path(ROOT) / f"outputs/real_validation_visuals/{Path(cfg.model_path).stem}"
+            os.makedirs(output_dir, exist_ok=True)
+            # Save figure to file.
+            plt.savefig(output_dir / f"example_{ii}.png")
 
 
 if __name__ == "__main__":

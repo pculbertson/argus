@@ -30,6 +30,9 @@ class CameraCubePoseDatasetConfig:
     """
 
     dataset_path: Optional[str] = None
+    center_crop: bool = True
+    H: Optional[int] = 256
+    W: Optional[int] = 256
 
     def __post_init__(self) -> None:
         """Checks that the dataset path is set and that it is a string for wandb serialization."""
@@ -58,6 +61,10 @@ class CameraCubePoseDatasetConfig:
                 self.dataset_path = ROOT + "/" + self.dataset_path
             else:
                 raise FileNotFoundError(f"The specified path does not exist: {self.dataset_path}!")
+
+        # Checks for center cropping
+        if self.center_crop:
+            assert self.H is not None and self.W is not None, "If center cropping is enabled, H and W must be set!"
 
 
 class CameraCubePoseDataset(Dataset):
@@ -96,8 +103,14 @@ class CameraCubePoseDataset(Dataset):
 
                 # extracting attributes
                 self.n_cams = f.attrs["n_cams"]
-                self.W = f.attrs["W"]
-                self.H = f.attrs["H"]
+                self.center_crop = cfg.center_crop
+
+                if self.center_crop:
+                    self.H = cfg.H
+                    self.W = cfg.W
+                else:
+                    self.W = f.attrs["W"]
+                    self.H = f.attrs["H"]
 
                 # grabbing the data
                 _cube_poses = torch.from_numpy(dataset["cube_poses"][()])  # original quat order is (w, x, y, z)
@@ -116,8 +129,16 @@ class CameraCubePoseDataset(Dataset):
 
                     # extracting attributes
                     self.n_cams = f.attrs["n_cams"]
-                    self.W = f.attrs["W"]
-                    self.H = f.attrs["H"]
+                    self.center_crop = cfg.center_crop
+
+                    if self.center_crop:
+                        self.H = cfg.H
+                        self.W = cfg.W
+                        self.H_raw = f.attrs["H"]
+                        self.W_raw = f.attrs["W"]
+                    else:
+                        self.W = self.W_raw = f.attrs["W"]
+                        self.H = self.H_raw = f.attrs["H"]
 
                     # grabbing the data
                     _cube_poses = torch.from_numpy(dataset["cube_poses"][()])
@@ -136,7 +157,9 @@ class CameraCubePoseDataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict:
         """Returns the idx-th datapoint."""
-        images = torch.tensor(self.images[idx]).reshape((-1, self.H, self.W))  # (n_cams * 3, H, W)
+        images = torch.tensor(self.images[idx]).reshape((-1, self.H_raw, self.W_raw))  # (n_cams * 3, H, W)
+        if self.center_crop:
+            images = kornia.geometry.transform.center_crop(images.unsqueeze(0), (self.H, self.W)).squeeze(0)
         return {
             "images": images.to(torch.float32),
             "cube_pose": self.cube_poses[idx],

@@ -82,7 +82,7 @@ class TrainConfig:
             if os.path.exists(ROOT + "/" + self.save_dir):
                 self.save_dir = ROOT + "/" + self.save_dir
             else:
-                raise FileNotFoundError(f"The specified path does not exist: {self.save_dir}!")
+                os.makedirs(self.save_dir, exist_ok=True)
 
 
 def geometric_loss_fn(pred: torch.Tensor, target: pp.LieTensor) -> torch.Tensor:
@@ -124,13 +124,13 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
         print("Data too large to load into memory. Please consider using a larger machine or a smaller dataset!")
 
     # model
-    model = NCameraCNN(cfg.model_config).to(cfg.device)
+    model = NCameraCNN(cfg.model_config, cfg.dataset_config.W, cfg.dataset_config.H).to(cfg.device)
     if cfg.compile_model:
         model = torch.compile(model, mode="reduce-overhead")  # compiled model
         print("Compiling the model...")
         model(
             torch.zeros(
-                (cfg.batch_size, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W),
+                (cfg.batch_size, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W),
                 device=cfg.device,
             )
         )  # warming up the optimized model by running dummy inputs
@@ -141,14 +141,14 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
         if train_leftover != 0:
             model(
                 torch.zeros(
-                    (train_leftover, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W),
+                    (train_leftover, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W),
                     device=cfg.device,
                 )
             )
         if val_leftover != 0:
             model(
                 torch.zeros(
-                    (val_leftover, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W),
+                    (val_leftover, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W),
                     device=cfg.device,
                 )
             )
@@ -202,8 +202,8 @@ def train(cfg: TrainConfig) -> None:
             images = example["images"].to(cfg.device).to(torch.float32)  # (B, 6, H, W)
             cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)  # quats are (x, y, z, w)
             if cfg.use_augmentation:
-                _images = train_augmentation(images.reshape(-1, 3, cfg.model_config.H, cfg.model_config.W))
-                images = _images.reshape(-1, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W)
+                _images = train_augmentation(images.reshape(-1, 3, cfg.dataset_config.H, cfg.dataset_config.W))
+                images = _images.reshape(-1, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W)
 
             # forward pass
             cube_pose_pred_se3 = model(images)  # therefore, the predicted quats are (x, y, z, w)
@@ -231,9 +231,9 @@ def train(cfg: TrainConfig) -> None:
                     images = example["images"].to(cfg.device).to(torch.float32)
                     cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)
                     if cfg.use_augmentation:
-                        _images = val_augmentation(images.reshape(-1, 3, cfg.model_config.H, cfg.model_config.W))
+                        _images = val_augmentation(images.reshape(-1, 3, cfg.dataset_config.H, cfg.dataset_config.W))
                         images = _images.reshape(
-                            -1, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W
+                            -1, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W
                         )
                     cube_pose_pred_repr = model(images)
                     losses = loss_fn(cube_pose_pred_repr, cube_pose_SE3)
@@ -251,6 +251,7 @@ def train(cfg: TrainConfig) -> None:
             if cfg.save_dir is not None:
                 save_dir = Path(cfg.save_dir)
             else:
+                # Make outputs folder if not there.
                 save_dir = Path(ROOT + "/outputs/models")
             os.makedirs(save_dir, exist_ok=True)
             torch.save(model.state_dict(), save_dir / f"{wandb_id}.pth")
