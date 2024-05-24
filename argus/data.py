@@ -1,7 +1,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 
 import h5py
 import kornia
@@ -130,10 +130,10 @@ class AugmentationConfig:
     """Configuration for data augmentation."""
 
     # color jiggle
-    brightness: Union[float, Tuple[float, float]] = 0.4
-    contrast: Union[float, Tuple[float, float]] = (0.3, 1.2)
-    saturation: Union[float, Tuple[float, float]] = (0.3, 1.2)
-    hue: Union[float, Tuple[float, float]] = 0.1
+    brightness: Union[float, tuple[float, float]] = 0.4
+    contrast: Union[float, tuple[float, float]] = (0.3, 1.2)
+    saturation: Union[float, tuple[float, float]] = (0.3, 1.2)
+    hue: Union[float, tuple[float, float]] = 0.1
 
     # flags
     color_jiggle: bool = True
