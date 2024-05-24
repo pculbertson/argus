@@ -134,7 +134,7 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
         print("Data too large to load into memory. Please consider using a larger machine or a smaller dataset!")
 
     # model
-    model = NCameraCNN(cfg.model_config, cfg.dataset_config.W, cfg.dataset_config.H).to(cfg.device)
+    model = NCameraCNN(cfg.model_config).to(cfg.device)
     if cfg.compile_model:
         model = torch.compile(model, mode="reduce-overhead")  # compiled model
         print("Compiling the model...")
