@@ -110,7 +110,7 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
     np.random.seed(cfg.random_seed)
 
     # dataloaders and augmentations
-    print("Loading all data into memory...")
+    print("Creating dataloaders...")
     try:
         train_dataset = CameraCubePoseDataset(cfg.dataset_config, train=True)
         train_dataloader = DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True)
@@ -193,11 +193,11 @@ def train(cfg: TrainConfig) -> None:
         wandb_id,
     ) = initialize_training(cfg)
 
-    for epoch in range(cfg.n_epochs):
+    for epoch in tqdm(range(cfg.n_epochs), desc="Epoch"):
         # training loop
         model.train()
         avg_loss_in_epoch = []
-        for example in tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{cfg.n_epochs}", total=len(train_dataloader)):
+        for example in tqdm(train_dataloader, desc="Iterations", total=len(train_dataloader), leave=False):
             # loading data
             images = example["images"].to(cfg.device).to(torch.float32)  # (B, 6, H, W)
             cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)  # quats are (x, y, z, w)
@@ -235,8 +235,8 @@ def train(cfg: TrainConfig) -> None:
                         images = _images.reshape(
                             -1, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W
                         )
-                    cube_pose_pred_repr = model(images)
-                    losses = loss_fn(cube_pose_pred_repr, cube_pose_SE3)
+                    cube_pose_pred_se3 = model(images)
+                    losses = loss_fn(cube_pose_pred_se3, cube_pose_SE3)
                     val_loss.append(losses)
 
                 val_loss = torch.mean(torch.cat(val_loss)).item()
