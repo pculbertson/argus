@@ -106,7 +106,7 @@ class CameraCubePoseDataset(Dataset):
         img_a = Image.open(f"{self.dataset_path}/{img_stem}_a.png")  # (H, W, 3)
         img_b = Image.open(f"{self.dataset_path}/{img_stem}_b.png")  # (H, W, 3)
         _images = np.concatenate([np.array(img_a), np.array(img_b)], axis=-1).transpose(2, 0, 1)  # (n_cams * 3, H, W)
-        images = torch.tensor(_images)  # (n_cams * 3, H, W)
+        images = torch.tensor(_images) / 255.0  # (n_cams * 3, H, W)
         return {
             "images": images.to(torch.float32),
             "cube_pose": self.cube_poses[idx],
@@ -185,7 +185,7 @@ if __name__ == "__main__":
     import cv2
     import tyro
 
-    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data_short.hdf5")
+    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data_small")
     augmentation_cfg = tyro.cli(AugmentationConfig)
     train_dataset = CameraCubePoseDataset(dataset_cfg, train=True)
 

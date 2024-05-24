@@ -121,6 +121,7 @@ class GenerateDataConfig:
       states like the cube poses and LEAP hand states.
     * The images will be saved under data/img. Each will be named img{i}_{a,b}.png, where i indicates which pose is
       being rendered and a or b indicate whether the image was rendered from the first or second camera.
+      [NOTE] images are saved with uint8 pixel values from 0 to 255!
 
     Fields:
         env_exe_path: Path to the Unity environment executable.
@@ -233,10 +234,9 @@ def generate_data(cfg: GenerateDataConfig) -> None:
 
     # randomizing the order, saving hdf5
     num_data = cube_poses_truncated.shape[0]
-    idxs = np.random.permutation(num_data)
+    idxs_shuf = np.random.permutation(num_data)
     train_test_idx = int(train_frac * num_data)  # index for train/test split
     img_stems = [f"img/img{i}" for i in range(num_data)]
-    img_stems = [img_stems[i] for i in idxs]
     with h5py.File(Path(output_data_path) / f"{Path(output_data_path).stem}.hdf5", "w") as f:
         # high-level attributes
         f.attrs["n_cams"] = 2
@@ -244,19 +244,21 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         f.attrs["W"] = 672
 
         # the train/test split
-        cube_poses_train = cube_poses_truncated[idxs][:train_test_idx]
-        q_leap_train = q_leap_truncated[idxs][:train_test_idx]
+        cube_poses_train = cube_poses_truncated[idxs_shuf][:train_test_idx]
+        q_leap_train = q_leap_truncated[idxs_shuf][:train_test_idx]
+        img_stems_train = np.array(img_stems)[idxs_shuf][:train_test_idx].tolist()
         train = f.create_group("train")
         train.create_dataset("cube_poses", data=cube_poses_train)
         train.create_dataset("q_leap", data=q_leap_train)
-        train.create_dataset("img_stems", data=img_stems[:train_test_idx])
+        train.create_dataset("img_stems", data=img_stems_train)
 
-        cube_poses_test = cube_poses_truncated[idxs][train_test_idx:]
-        q_leap_test = q_leap_truncated[idxs][train_test_idx:]
+        cube_poses_test = cube_poses_truncated[idxs_shuf][train_test_idx:]
+        q_leap_test = q_leap_truncated[idxs_shuf][train_test_idx:]
+        img_stems_test = np.array(img_stems)[idxs_shuf][train_test_idx:].tolist()
         test = f.create_group("test")
         test.create_dataset("cube_poses", data=cube_poses_test)
         test.create_dataset("q_leap", data=q_leap_test)
-        test.create_dataset("img_stems", data=img_stems[train_test_idx:])
+        test.create_dataset("img_stems", data=img_stems_test)
 
     print("Rendering image data...")
     img_idx = 0
@@ -265,7 +267,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
 
         # computing actions to send to Unity agent (these are the states we want to set)
         cube_poses_batch = cube_poses_all[episode * n_agents : (episode + 1) * n_agents]  # (n_agents, 7)
-        q_leap = q_leap_all[episode * n_agents : (episode + 1) * n_agents]  # (n_agents, 16)
+        q_leap_batch = q_leap_all[episode * n_agents : (episode + 1) * n_agents]  # (n_agents, 16)
         cam1_poses = generate_random_camera_poses(
             n_agents,
             cam1_nominal[:3],
@@ -289,7 +291,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         action[:, 17:20] = np.random.uniform(*cam_rgb_range, size=(n_agents, 3))
         action[:, 20:27] = cube_poses_batch
         action[:, 27:34] = light_poses
-        action[:, 34:50] = q_leap
+        action[:, 34:50] = q_leap_batch
 
         # advancing the Unity sim and rendering out observations
         action_tuple = ActionTuple(continuous=action)
@@ -304,6 +306,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         # bagging the data
         imgs = np.concatenate([cam1_obs, cam2_obs], axis=1).reshape(n_agents, 6, 376, 672)
         for _ in range(n_agents):
+            # [NOTE] images are saved with uint8 pixel values from 0 to 255!
             img_a = Image.fromarray((imgs[0, :3, ...].transpose(1, 2, 0) * 255).astype(np.uint8))
             img_b = Image.fromarray((imgs[0, 3:, ...].transpose(1, 2, 0) * 255).astype(np.uint8))
             img_a.save(Path(output_data_path) / f"img/img{img_idx}_a.png")
