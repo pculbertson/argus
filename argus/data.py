@@ -1,7 +1,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union, Tuple
 
 import h5py
 import kornia
@@ -104,6 +104,8 @@ class CameraCubePoseDataset(Dataset):
                 # extracting attributes
                 self.n_cams = f.attrs["n_cams"]
                 self.center_crop = cfg.center_crop
+                self.H_raw = f.attrs["H"]
+                self.W_raw = f.attrs["W"]
 
                 if self.center_crop:
                     self.H = cfg.H
@@ -130,12 +132,13 @@ class CameraCubePoseDataset(Dataset):
                     # extracting attributes
                     self.n_cams = f.attrs["n_cams"]
                     self.center_crop = cfg.center_crop
+                    self.H_raw = f.attrs["H"]
+                    self.W_raw = f.attrs["W"]
 
                     if self.center_crop:
                         self.H = cfg.H
                         self.W = cfg.W
-                        self.H_raw = f.attrs["H"]
-                        self.W_raw = f.attrs["W"]
+
                     else:
                         self.W = self.W_raw = f.attrs["W"]
                         self.H = self.H_raw = f.attrs["H"]
@@ -171,10 +174,10 @@ class AugmentationConfig:
     """Configuration for data augmentation."""
 
     # color jiggle
-    brightness: float = 0.2
-    contrast: float = 0.4
-    saturation: float = 0.4
-    hue: float = 0.025
+    brightness: Union[float, Tuple[float, float]] = 0.4
+    contrast: Union[float, Tuple[float, float]] = (0.3, 1.2)
+    saturation: Union[float, Tuple[float, float]] = (0.3, 1.2)
+    hue: Union[float, Tuple[float, float]] = 0.1
 
     # flags
     color_jiggle: bool = True
@@ -218,6 +221,7 @@ class Augmentation(torch.nn.Module):
                     contrast=cfg.contrast,
                     saturation=cfg.saturation,
                     hue=cfg.hue,
+                    same_on_batch=True,
                 )
             )
 
@@ -238,7 +242,9 @@ if __name__ == "__main__":
     import cv2
     import tyro
 
-    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data_short.hdf5")
+    dataset_cfg = CameraCubePoseDatasetConfig(
+        dataset_path=ROOT + "/outputs/data/cube_unity_data_large/cube_unity_data_large_0.hdf5"
+    )
     augmentation_cfg = tyro.cli(AugmentationConfig)
     train_dataset = CameraCubePoseDataset(dataset_cfg, train=True)
 

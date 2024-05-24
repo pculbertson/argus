@@ -69,7 +69,7 @@ class TrainConfig:
 
     # data augmentation
     augmentation_config: AugmentationConfig = AugmentationConfig()
-    use_augmentation: bool = False
+    use_augmentation: bool = True
 
     # wandb
     wandb_project: str = "argus-estimator"

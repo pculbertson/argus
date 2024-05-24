@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
+import kornia
 import matplotlib.pyplot as plt
 import numpy as np
 import pypose as pp
@@ -86,7 +87,7 @@ def validate(cfg: ValConfig) -> None:
     # unpacking config
     model_path = cfg.model_path
     model_config = cfg.model_config
-    dataset_cfg = cfg.dataset_config
+    dataset_config = cfg.dataset_config
     aug_cfg = cfg.aug_config
     use_train = cfg.use_train
     device = cfg.device
@@ -96,7 +97,7 @@ def validate(cfg: ValConfig) -> None:
     train_or_val = "train" if use_train else "validation"
     output_path = ROOT + f"/outputs/{train_or_val}_visuals/{ckpt_name}"
 
-    model = NCameraCNN(model_config)
+    model = NCameraCNN(model_config, W=dataset_config.W, H=dataset_config.H)
     model.load_state_dict(torch.load(model_path))
     model.to(device)
     model.eval()
@@ -106,18 +107,19 @@ def validate(cfg: ValConfig) -> None:
     augmentation.to(device)
 
     # dataloader
-    dataset = CameraCubePoseDataset(dataset_cfg, train=use_train)
+    dataset = CameraCubePoseDataset(dataset_config, train=use_train)
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
 
     # for each data example, plot the true and predicted cube pose
     losses = []
     for i, example in tqdm(enumerate(dataloader), total=len(dataloader)):
         # forward pass
-        breakpoint()
         images = example["images"].to(device).to(torch.float32)
+        if dataset_config.center_crop:
+            images = kornia.geometry.transform.center_crop(images, (dataset_config.H, dataset_config.W))
         cube_pose_true_SE3 = example["cube_pose"].to(device).to(torch.float32)
-        _images = augmentation(images.reshape(-1, 3, model_config.H, model_config.W))
-        images = _images.reshape(-1, model_config.n_cams * 3, model_config.H, model_config.W)
+        _images = augmentation(images.reshape(-1, 3, dataset_config.H, dataset_config.W))
+        images = _images.reshape(-1, model_config.n_cams * 3, dataset_config.H, dataset_config.W)
 
         cube_pose_pred_se3 = model(images)
         loss = torch.mean(geometric_loss_fn(cube_pose_pred_se3, cube_pose_true_SE3))
