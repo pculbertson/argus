@@ -8,6 +8,7 @@ import kornia
 import numpy as np
 import pypose as pp
 import torch
+from PIL import Image
 from torch.utils.data import Dataset
 
 from argus import ROOT
@@ -20,44 +21,35 @@ class CameraCubePoseDatasetConfig:
 
     For all path fields, you can either specify an absolute path, a relative path (with respect to where you are
     currently calling the data generation function), or a local path RELATIVE TO THE ROOT OF THE PACKAGE IN YOUR SYSTEM!
-    For instance, if you pass "example_dir/data.hdf5" to `dataset_path`, the data will be loaded from
-    /path/to/argus/example_dir/datda.hdf5.
+    For instance, if you pass "example_dir/data" to `dataset_path`, the hdf5 data will be loaded from
+    /path/to/argus/example_dir/data/data.hdf5 and the image data will be from /path/to/argus/example_dir/data/img/.
 
     Args:
-        dataset_path: The path to the dataset. Must lead to an hdf5 file or a directory of hdf5 files. Specifically, if
-            you supply the path /path/to/dir, then the files must have the form /path/to/dir/dir_{i}.hdf5, where i is
-            some integer.
+        dataset_path: The path to the dataset. Must lead to a directory with an hdf5 file and images.
     """
 
     dataset_path: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Checks that the dataset path is set and that it is a string for wandb serialization."""
-        assert self.dataset_path is not None, (
-            "The dataset path must be provided (either an hdf5 file or a directory with them)!\n"
-            "Here is a tree of the `outputs/data` directory to help:\n"
-            f"{get_tree_string(ROOT + '/outputs/data', 'hdf5')}"
-        )
-        # check whether there's an extension or not
-        if not Path(self.dataset_path).suffix:
-            # iterate over all files in the directory
-            for file in os.listdir(self.dataset_path):
-                assert Path(file).suffix == ".hdf5", "The dataset must consist of hdf5 files!"
-                assert (
-                    str(Path(file).stem).split("_")[-1].isdigit()
-                ), "The dataset must be named as `cube_unity_data_{n}.hdf5`!"
-                assert "_".join(str(Path(file).stem).split("_")[:-1]) == str(Path(self.dataset_path).stem), (
-                    "The dataset must be named as `{dir_name}_{n}.hdf5` where the directory name is the same as "
-                    "the dataset path!"
-                )
-        else:
-            assert Path(self.dataset_path).suffix == ".hdf5", "The dataset must be stored as an hdf5 file!"
         assert isinstance(self.dataset_path, str), "The dataset path must be a str!"
         if not os.path.exists(self.dataset_path):  # absolute path
             if os.path.exists(ROOT + "/" + self.dataset_path):
                 self.dataset_path = ROOT + "/" + self.dataset_path
             else:
                 raise FileNotFoundError(f"The specified path does not exist: {self.dataset_path}!")
+        assert self.dataset_path is not None, (
+            "The dataset path must be provided!\n"
+            "Here is a tree of the `outputs/data` directory to help:\n"
+            f"{get_tree_string(ROOT + '/outputs/data', 'hdf5')}"
+        )
+        # check whether there's an extension
+        assert not Path(self.dataset_path).suffix, "The dataset path must point to a directory!"
+        if Path(self.dataset_path).is_dir():
+            assert os.path.exists(
+                self.dataset_path + f"/{Path(self.dataset_path).stem}.hdf5"
+            ), f"There must be an hdf5 file with the name {Path(self.dataset_path).stem}.hdf5!"
+            assert os.path.exists(self.dataset_path + "/img"), "The dataset must have an `img` directory!"
 
 
 class CameraCubePoseDataset(Dataset):
@@ -74,10 +66,9 @@ class CameraCubePoseDataset(Dataset):
             - H: the height of the images.
         Structure:
             - train
-                - images: The images of the cube of shape (n_data, n_cams, C, H, W). The pixel values should be
-                    normalized between 0 and 1. There should be no alpha channel. When the images are retrieved
-                    from the dataset, we flatten the shape to (n_cams * C, H, W)!
                 - cube_poses: The poses of the cube of shape (n_data, 7), (x, y, z, qw, qx, qy, qz).
+                - q_leap: The state of the LEAP hand of shape (n_data, 16). Mostly used for debugging or viz.
+                - img_stems: The paths to the dataset images relative to the dataset root.
             - test
                 - same fields as `train`.
 
@@ -86,57 +77,36 @@ class CameraCubePoseDataset(Dataset):
             train: Whether to load the training or test set. Default=True.
         """
         dataset_path = cfg.dataset_path
-        # case 1: single file
-        if Path(dataset_path).suffix:
-            with h5py.File(dataset_path, "r") as f:
-                if train:
-                    dataset = f["train"]
-                else:
-                    dataset = f["test"]
+        self.dataset_path = dataset_path
+        with h5py.File(dataset_path + f"/{Path(dataset_path).stem}.hdf5", "r") as f:
+            if train:
+                dataset = f["train"]
+            else:
+                dataset = f["test"]
 
-                # extracting attributes
-                self.n_cams = f.attrs["n_cams"]
-                self.W = f.attrs["W"]
-                self.H = f.attrs["H"]
+            # extracting attributes
+            self.n_cams = f.attrs["n_cams"]
+            self.W = f.attrs["W"]
+            self.H = f.attrs["H"]
 
-                # grabbing the data
-                _cube_poses = torch.from_numpy(dataset["cube_poses"][()])  # original quat order is (w, x, y, z)
-                self.cube_poses = pp.SE3(xyzwxyz_to_xyzxyzw_SE3(_cube_poses))  # pp quat order is (x, y, z, w)
-                self.images = dataset["images"][()]  # (n_data, n_cams, 3, H, W)
-
-        # case 2: multiple files
-        else:
-            # iterate over all files in the directory
-            for i, file in enumerate(os.listdir(dataset_path)):
-                with h5py.File(dataset_path + "/" + file, "r") as f:
-                    if train:
-                        dataset = f["train"]
-                    else:
-                        dataset = f["test"]
-
-                    # extracting attributes
-                    self.n_cams = f.attrs["n_cams"]
-                    self.W = f.attrs["W"]
-                    self.H = f.attrs["H"]
-
-                    # grabbing the data
-                    _cube_poses = torch.from_numpy(dataset["cube_poses"][()])
-                    if i == 0:
-                        self.cube_poses = pp.SE3(xyzwxyz_to_xyzxyzw_SE3(_cube_poses))
-                        self.images = dataset["images"][()]
-                    else:
-                        self.cube_poses = torch.cat(
-                            (self.cube_poses, pp.SE3(xyzwxyz_to_xyzxyzw_SE3(_cube_poses))), dim=0
-                        )
-                        self.images = np.concatenate((self.images, dataset["images"][()]), axis=0)
+            # grabbing the data
+            _cube_poses = torch.from_numpy(dataset["cube_poses"][()])  # original quat order is (w, x, y, z)
+            self.cube_poses = pp.SE3(xyzwxyz_to_xyzxyzw_SE3(_cube_poses))  # pp quat order is (x, y, z, w)
+            self.q_leap = torch.from_numpy(dataset["q_leap"][()])
+            _img_stems = dataset["img_stems"][()]
+            self.img_stems = [byte_string.decode("utf-8") for byte_string in _img_stems]
 
     def __len__(self) -> int:
         """Number of datapoints, i.e., (N image, cube pose) tuples."""
-        return len(self.images)
+        return self.cube_poses.shape[0]
 
     def __getitem__(self, idx: int) -> dict:
         """Returns the idx-th datapoint."""
-        images = torch.tensor(self.images[idx]).reshape((-1, self.H, self.W))  # (n_cams * 3, H, W)
+        img_stem = self.img_stems[idx]
+        img_a = Image.open(f"{self.dataset_path}/{img_stem}_a.png")  # (H, W, 3)
+        img_b = Image.open(f"{self.dataset_path}/{img_stem}_b.png")  # (H, W, 3)
+        _images = np.concatenate([np.array(img_a), np.array(img_b)], axis=-1).transpose(2, 0, 1)  # (n_cams * 3, H, W)
+        images = torch.tensor(_images)  # (n_cams * 3, H, W)
         return {
             "images": images.to(torch.float32),
             "cube_pose": self.cube_poses[idx],
