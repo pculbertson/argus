@@ -118,15 +118,16 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
 
     # dataloaders and augmentations
     print("Creating dataloaders...")
+    num_workers = 16 * cfg.num_gpus  # TODO(ahl): what's the effect of num_gpus?
     try:
         train_dataset = CameraCubePoseDataset(cfg.dataset_config, cfg_aug=cfg.augmentation_config, train=True)
         train_dataloader = DataLoader(
-            train_dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=16 * cfg.num_gpus, pin_memory=True
+            train_dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=num_workers, pin_memory=True
         )
 
         val_dataset = CameraCubePoseDataset(cfg.dataset_config, cfg_aug=cfg.augmentation_config, train=False)
         val_dataloader = DataLoader(
-            val_dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=16 * cfg.num_gpus, pin_memory=True
+            val_dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=num_workers, pin_memory=True
         )
 
     except RuntimeError:
