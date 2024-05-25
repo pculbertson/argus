@@ -7,7 +7,7 @@ from argus.data import CameraCubePoseDataset, CameraCubePoseDatasetConfig
 # ######### #
 
 
-def run_assertions(dataset, expected_len) -> None:
+def run_assertions(dataset: CameraCubePoseDataset, expected_len: int) -> None:
     """A helper function to run assertions on the items in the dataset."""
     assert (
         len(dataset) == expected_len
@@ -22,7 +22,7 @@ def run_assertions(dataset, expected_len) -> None:
 # ##### #
 
 
-def test_len(dummy_data_path) -> None:
+def test_len(dummy_data_path: str) -> None:
     """Tests the __len__ method of the dataset."""
     # load the dataset
     cfg = CameraCubePoseDatasetConfig(dummy_data_path)
@@ -34,7 +34,7 @@ def test_len(dummy_data_path) -> None:
     run_assertions(dataset, 5)
 
 
-def test_get_item(dummy_data_path) -> None:
+def test_get_item(dummy_data_path: str) -> None:
     """Tests the __getitem__ method of the dataset."""
     # load the dataset
     cfg = CameraCubePoseDatasetConfig(dummy_data_path)
@@ -46,7 +46,7 @@ def test_get_item(dummy_data_path) -> None:
     run_assertions(dataset, 5)
 
 
-def test_center_crop(dummy_data_path) -> None:
+def test_center_crop(dummy_data_path: str) -> None:
     """Tests the center crop functionality of the dataset."""
     # load the dataset
     cfg = CameraCubePoseDatasetConfig(dummy_data_path, center_crop=(128, 128))

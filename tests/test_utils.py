@@ -3,6 +3,7 @@ import pypose as pp
 import pytest
 import torch
 
+from argus.models import NCameraCNN
 from argus.utils import (
     convert_pose_mjpc_to_unity,
     convert_pose_unity_to_mjpc,
@@ -78,9 +79,9 @@ def test_convert_pose_unity_to_mjpc() -> None:
     assert np.allclose(pose_mjpc, convert_pose_unity_to_mjpc(convert_pose_mjpc_to_unity(pose_mjpc)))
 
 
-def test_get_pose(dummy_model) -> None:
+def test_get_pose(dummy_model: NCameraCNN, dummy_center_crop: tuple[int, int]) -> None:
     """Tests the get_pose function with a compiled model."""
-    x = torch.randn(2, 6, 256, 256)
+    x = torch.randn(2, 6, *dummy_center_crop)
     model_compiled = torch.compile(dummy_model, mode="reduce-overhead")
     pose = get_pose(x, model_compiled)
     assert pose.shape == (2, 7)  # should be a pypose object

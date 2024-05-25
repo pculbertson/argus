@@ -9,7 +9,7 @@ from argus import ROOT
 from argus.data_generation import GenerateDataConfig, generate_data
 
 
-def test_datagen(tmp_path_factory, dummy_json_path) -> None:
+def test_datagen(tmp_path_factory, dummy_json_path: str) -> None:
     """Test the datagen."""
     # test whether mac or ubuntu
     if platform == "linux" or platform == "linux2":

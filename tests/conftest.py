@@ -89,3 +89,9 @@ def dummy_save_dir(tmp_path_factory) -> str:
 def dummy_model() -> NCameraCNN:
     """A fixture for the model."""
     return NCameraCNN(NCameraCNNConfig(n_cams=2))
+
+
+@pytest.fixture(scope="session")
+def dummy_center_crop() -> tuple[int, int]:
+    """A fixture for the center crop/de facto image size used in all tests."""
+    return 256, 256
