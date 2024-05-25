@@ -94,12 +94,11 @@ class CameraCubePoseDatasetConfig:
 
     Args:
         dataset_path: The path to the dataset. Must lead to a directory with an hdf5 file and images.
+        center_crop: The size of the center crop. Specified as the height and then the width of the crop.
     """
 
     dataset_path: Optional[str] = None
-    center_crop: bool = True
-    H: Optional[int] = 256
-    W: Optional[int] = 256
+    center_crop: Optional[tuple[int, int]] = (256, 256)
 
     def __post_init__(self) -> None:
         """Checks that the dataset path is set and that it is a string for wandb serialization."""
@@ -121,10 +120,6 @@ class CameraCubePoseDatasetConfig:
                 self.dataset_path + f"/{Path(self.dataset_path).stem}.hdf5"
             ), f"There must be an hdf5 file with the name {Path(self.dataset_path).stem}.hdf5!"
             assert os.path.exists(self.dataset_path + "/img"), "The dataset must have an `img` directory!"
-
-        # Checks for center cropping
-        if self.center_crop:
-            assert self.H is not None and self.W is not None, "If center cropping is enabled, H and W must be set!"
 
 
 class CameraCubePoseDataset(Dataset):
@@ -164,8 +159,6 @@ class CameraCubePoseDataset(Dataset):
 
             # extracting attributes
             self.n_cams = f.attrs["n_cams"]
-            self.W = cfg_dataset.W
-            self.H = cfg_dataset.H
 
             # grabbing the data
             _cube_poses = torch.from_numpy(dataset["cube_poses"][()])  # original quat order is (w, x, y, z)
@@ -195,10 +188,12 @@ class CameraCubePoseDataset(Dataset):
         img_b = Image.open(f"{self.dataset_path}/{img_stem}_b.png")  # (H, W, 3)
         _images = np.concatenate([np.array(img_a), np.array(img_b)], axis=-1).transpose(2, 0, 1)  # (n_cams * 3, H, W)
         images = torch.tensor(_images) / 255.0  # (n_cams * 3, H, W)
-        if self.center_crop:
-            images = kornia.geometry.transform.center_crop(images.unsqueeze(0), (self.H, self.W)).squeeze(0)
+        if self.center_crop and images.shape[-2:] != self.center_crop:  # crop if not already cropped and requested
+            images = kornia.geometry.transform.center_crop(
+                images.unsqueeze(0), (self.center_crop[0], self.center_crop[1])
+            ).squeeze(0)
         if self.augmentation is not None:
-            H, W = images.shape[-2:]  # these exist regardless of whether self.H and self.W exist
+            H, W = images.shape[-2:]
             images = self.augmentation(images.reshape((self.n_cams, 3, H, W))).reshape(-1, H, W)
         return {
             "images": images.to(torch.float32),
