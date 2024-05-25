@@ -6,7 +6,7 @@ import torch
 import wandb
 
 from argus.data import CameraCubePoseDatasetConfig
-from argus.models import NCameraCNNConfig
+from argus.models import NCameraCNN, NCameraCNNConfig
 from argus.train import TrainConfig, geometric_loss_fn, train
 
 
@@ -36,7 +36,9 @@ def test_geometric_loss_fn() -> None:
     assert torch.allclose(loss, torch.zeros(32))
 
 
-def test_train(dummy_save_dir, dummy_data_path, dummy_model) -> None:
+def test_train(
+    dummy_save_dir: str, dummy_data_path: str, dummy_model: NCameraCNN, dummy_center_crop: tuple[int, int]
+) -> None:
     """Tests that the training loop runs all the way through properly for 1 iteration."""
     train_cfg = TrainConfig(
         batch_size=10,
@@ -49,11 +51,7 @@ def test_train(dummy_save_dir, dummy_data_path, dummy_model) -> None:
         print_epochs=1,
         save_epochs=1,
         save_dir=dummy_save_dir,
-        model_config=NCameraCNNConfig(
-            n_cams=2,
-            W=672,
-            H=376,
-        ),
+        model_config=NCameraCNNConfig(n_cams=2),
         dataset_config=CameraCubePoseDatasetConfig(
             dataset_path=dummy_data_path,
         ),
@@ -70,10 +68,10 @@ def test_train(dummy_save_dir, dummy_data_path, dummy_model) -> None:
 
     # for efficiency, also tests the random seed by training the same model twice
     dummy_model.load_state_dict(torch.load(list(Path(dummy_save_dir).glob("*.pth"))[0]))
-    output1 = dummy_model(torch.ones(1, 2 * 3, 376, 672))
+    output1 = dummy_model(torch.ones(1, 2 * 3, *dummy_center_crop))
     for p in Path(dummy_save_dir).glob("*.pth"):
         p.unlink()  # deletes the old model
     train(train_cfg)
     dummy_model.load_state_dict(torch.load(list(Path(dummy_save_dir).glob("*.pth"))[0]))
-    output2 = dummy_model(torch.ones(1, 2 * 3, 376, 672))
+    output2 = dummy_model(torch.ones(1, 2 * 3, *dummy_center_crop))
     assert torch.allclose(output1, output2)

@@ -133,6 +133,8 @@ class GenerateDataConfig:
         bounds_trans: Bounds of the uniform translation perturbations in meters.
         quat_stdev: Standard deviation of the Gaussian noise added to the quaternion (drawn in tangent space).
         cam_rgb_range: The RGB values the camera can randomize over. Must be subset of the [0, 1] interval.
+        center_crop: The size of the center crop to take from the images. If None, no center crop is taken. The elements
+            specify FIRST the height and THEN the width of the crop!
         train_frac: Fraction of the data to use for training.
     """
 
@@ -142,9 +144,10 @@ class GenerateDataConfig:
     n_agents: int = 1
     cam1_nominal: Optional[np.ndarray] = None
     cam2_nominal: Optional[np.ndarray] = None
-    bounds_trans: float = 0.01
+    bounds_trans: float = 0.005
     quat_stdev: float = 0.05
     cam_rgb_range: tuple[float] = (0.5, 1.0)
+    center_crop: Optional[tuple[int, int]] = (256, 256)
     train_frac: float = 0.9
 
     def __post_init__(self):
@@ -208,6 +211,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
     cam_rgb_range = cfg.cam_rgb_range
     bounds_trans = cfg.bounds_trans
     quat_stdev = cfg.quat_stdev
+    center_crop = cfg.center_crop
     train_frac = cfg.train_frac
 
     # retrieving the mjpc sim data
@@ -241,8 +245,6 @@ def generate_data(cfg: GenerateDataConfig) -> None:
     with h5py.File(Path(output_data_path) / f"{Path(output_data_path).stem}.hdf5", "w") as f:
         # high-level attributes
         f.attrs["n_cams"] = 2
-        f.attrs["H"] = 376
-        f.attrs["W"] = 672
 
         # the train/test split
         cube_poses_train = cube_poses_truncated[idxs_shuf][:train_test_idx]
@@ -305,11 +307,38 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         cam2_obs = decision_steps.obs[1]  # (n_agents, 3, H, W)
 
         # bagging the data
-        imgs = np.concatenate([cam1_obs, cam2_obs], axis=1).reshape(n_agents, 6, 376, 672)
+        H, W = cam1_obs.shape[-2:]
+        if episode == 0:
+            with h5py.File(Path(output_data_path) / f"{Path(output_data_path).stem}.hdf5", "a") as f:
+                f.attrs["H"] = center_crop[0] if center_crop else H
+                f.attrs["W"] = center_crop[1] if center_crop else W
+
+        imgs = np.concatenate([cam1_obs, cam2_obs], axis=1).reshape(n_agents, 6, H, W)
         for _ in range(n_agents):
             # [NOTE] images are saved with uint8 pixel values from 0 to 255!
             img_a = Image.fromarray((imgs[0, :3, ...].transpose(1, 2, 0) * 255).astype(np.uint8))
             img_b = Image.fromarray((imgs[0, 3:, ...].transpose(1, 2, 0) * 255).astype(np.uint8))
+
+            # center crop the images
+            if center_crop:
+                img_a = img_a.crop(
+                    (
+                        (W - center_crop[1]) / 2,
+                        (H - center_crop[0]) / 2,
+                        (W + center_crop[1]) / 2,
+                        (H + center_crop[0]) / 2,
+                    )
+                )
+                img_b = img_b.crop(
+                    (
+                        (W - center_crop[1]) / 2,
+                        (H - center_crop[0]) / 2,
+                        (W + center_crop[1]) / 2,
+                        (H + center_crop[0]) / 2,
+                    )
+                )
+
+            # save
             img_a.save(Path(output_data_path) / f"img/img{img_idx}_a.png")
             img_b.save(Path(output_data_path) / f"img/img{img_idx}_b.png")
             img_idx += 1
