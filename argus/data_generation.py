@@ -218,7 +218,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
     cube_poses_mjpc = q_all[..., :7]
     cube_poses_all = convert_pose_mjpc_to_unity(cube_poses_mjpc)  # (n_data, 7), UNITY coords
     q_leap_all = q_all[..., 7:]  # (n_data, 16)
-    print(q_leap_all.shape)
+
     n_episodes = cube_poses_all.shape[0] // n_agents
     _cube_poses_truncated = cube_poses_all[: n_agents * n_episodes, :]  # (n_agents * n_episodes, 7)
     cube_poses_truncated = convert_pose_unity_to_mjpc(_cube_poses_truncated)  # MJPC coords
