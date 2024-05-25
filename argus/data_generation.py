@@ -309,7 +309,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         # bagging the data
         H, W = cam1_obs.shape[-2:]
         if episode == 0:
-            with h5py.File(Path(output_data_path) / f"{Path(output_data_path).stem}.hdf5", "w") as f:
+            with h5py.File(Path(output_data_path) / f"{Path(output_data_path).stem}.hdf5", "a") as f:
                 f.attrs["H"] = center_crop[0] if center_crop else H
                 f.attrs["W"] = center_crop[1] if center_crop else W
 
