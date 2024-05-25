@@ -178,7 +178,7 @@ class CameraCubePoseDataset(Dataset):
         if cfg_aug is not None:
             self.augmentation = Augmentation(cfg_aug, train=train)
         else:
-            self.augmentation = lambda x: x
+            self.augmentation = None
 
         # assigning useful attributes
         self.dataset_path = dataset_path
@@ -197,8 +197,9 @@ class CameraCubePoseDataset(Dataset):
         images = torch.tensor(_images) / 255.0  # (n_cams * 3, H, W)
         if self.center_crop:
             images = kornia.geometry.transform.center_crop(images.unsqueeze(0), (self.H, self.W)).squeeze(0)
-        H, W = images.shape[-2:]  # these exist regardless of whether self.H and self.W exist
-        images = self.augmentation(images.reshape((self.n_cams, 3, H, W))).reshape(-1, H, W)
+        if self.augmentation is not None:
+            H, W = images.shape[-2:]  # these exist regardless of whether self.H and self.W exist
+            images = self.augmentation(images.reshape((self.n_cams, 3, H, W))).reshape(-1, H, W)
         return {
             "images": images.to(torch.float32),
             "cube_pose": self.cube_poses[idx],
