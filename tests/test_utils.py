@@ -80,7 +80,7 @@ def test_convert_pose_unity_to_mjpc() -> None:
 
 def test_get_pose(dummy_model) -> None:
     """Tests the get_pose function with a compiled model."""
-    x = torch.randn(2, 6, 376, 672)
+    x = torch.randn(2, 6, 256, 256)
     model_compiled = torch.compile(dummy_model, mode="reduce-overhead")
     pose = get_pose(x, model_compiled)
     assert pose.shape == (2, 7)  # should be a pypose object

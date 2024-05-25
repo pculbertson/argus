@@ -49,11 +49,7 @@ def test_train(dummy_save_dir, dummy_data_path, dummy_model) -> None:
         print_epochs=1,
         save_epochs=1,
         save_dir=dummy_save_dir,
-        model_config=NCameraCNNConfig(
-            n_cams=2,
-            W=672,
-            H=376,
-        ),
+        model_config=NCameraCNNConfig(n_cams=2),
         dataset_config=CameraCubePoseDatasetConfig(
             dataset_path=dummy_data_path,
         ),
@@ -70,10 +66,10 @@ def test_train(dummy_save_dir, dummy_data_path, dummy_model) -> None:
 
     # for efficiency, also tests the random seed by training the same model twice
     dummy_model.load_state_dict(torch.load(list(Path(dummy_save_dir).glob("*.pth"))[0]))
-    output1 = dummy_model(torch.ones(1, 2 * 3, 376, 672))
+    output1 = dummy_model(torch.ones(1, 2 * 3, 256, 256))
     for p in Path(dummy_save_dir).glob("*.pth"):
         p.unlink()  # deletes the old model
     train(train_cfg)
     dummy_model.load_state_dict(torch.load(list(Path(dummy_save_dir).glob("*.pth"))[0]))
-    output2 = dummy_model(torch.ones(1, 2 * 3, 376, 672))
+    output2 = dummy_model(torch.ones(1, 2 * 3, 256, 256))
     assert torch.allclose(output1, output2)

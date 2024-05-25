@@ -245,8 +245,6 @@ def generate_data(cfg: GenerateDataConfig) -> None:
     with h5py.File(Path(output_data_path) / f"{Path(output_data_path).stem}.hdf5", "w") as f:
         # high-level attributes
         f.attrs["n_cams"] = 2
-        f.attrs["H"] = center_crop[0] if center_crop else 376
-        f.attrs["W"] = center_crop[1] if center_crop else 672
 
         # the train/test split
         cube_poses_train = cube_poses_truncated[idxs_shuf][:train_test_idx]
@@ -309,7 +307,13 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         cam2_obs = decision_steps.obs[1]  # (n_agents, 3, H, W)
 
         # bagging the data
-        imgs = np.concatenate([cam1_obs, cam2_obs], axis=1).reshape(n_agents, 6, 376, 672)
+        H, W = cam1_obs.shape[-2:]
+        if episode == 0:
+            with h5py.File(Path(output_data_path) / f"{Path(output_data_path).stem}.hdf5", "w") as f:
+                f.attrs["H"] = center_crop[0] if center_crop else H
+                f.attrs["W"] = center_crop[1] if center_crop else W
+
+        imgs = np.concatenate([cam1_obs, cam2_obs], axis=1).reshape(n_agents, 6, H, W)
         for _ in range(n_agents):
             # [NOTE] images are saved with uint8 pixel values from 0 to 255!
             img_a = Image.fromarray((imgs[0, :3, ...].transpose(1, 2, 0) * 255).astype(np.uint8))
@@ -319,18 +323,18 @@ def generate_data(cfg: GenerateDataConfig) -> None:
             if center_crop:
                 img_a = img_a.crop(
                     (
-                        (672 - center_crop[1]) / 2,
-                        (376 - center_crop[0]) / 2,
-                        (672 + center_crop[1]) / 2,
-                        (376 + center_crop[0]) / 2,
+                        (W - center_crop[1]) / 2,
+                        (H - center_crop[0]) / 2,
+                        (W + center_crop[1]) / 2,
+                        (H + center_crop[0]) / 2,
                     )
                 )
                 img_b = img_b.crop(
                     (
-                        (672 - center_crop[1]) / 2,
-                        (376 - center_crop[0]) / 2,
-                        (672 + center_crop[1]) / 2,
-                        (376 + center_crop[0]) / 2,
+                        (W - center_crop[1]) / 2,
+                        (H - center_crop[0]) / 2,
+                        (W + center_crop[1]) / 2,
+                        (H + center_crop[0]) / 2,
                     )
                 )
 

@@ -66,7 +66,7 @@ if __name__ == "__main__":
             q_leaps = f["train"]["q_leap"][()]
 
     # create renderer
-    width, height = 672, 376
+    width, height = 256, 256
     renderer = mujoco.Renderer(model, height, width)
 
     mujoco.mj_forward(model, data)

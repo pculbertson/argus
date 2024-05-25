@@ -12,8 +12,8 @@ def main():
     # timing/model parameters
     N_TRIALS = 100  # run the forward pass 100 times
     N_CAMS = 2  # the number of cameras
-    W = 376  # resolution of VGA images from ZED
-    H = 672
+    W = 256  # resolution of VGA images from ZED
+    H = 256
 
     # setting up model + compiling
     cfg = NCameraCNNConfig(n_cams=N_CAMS, W=W, H=H)
@@ -33,7 +33,7 @@ def main():
     times = []
     for i in range(N_TRIALS + 1):
         # drawing random input
-        x = torch.rand((2, N_CAMS * 3, 376, 672), device="cuda")
+        x = torch.rand((2, N_CAMS * 3, 256, 256), device="cuda")
 
         # timing the forward pass
         with torch.no_grad():
