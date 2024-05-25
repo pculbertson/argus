@@ -113,11 +113,15 @@ class GenerateDataConfig:
 
     For all path fields, you can either specify an absolute path, a relative path (with respect to where you are
     currently calling the data generation function), or a local path RELATIVE TO THE ROOT OF THE PACKAGE IN YOUR SYSTEM!
-    For instance, if you pass "example_dir/data.hdf5" to `output_data_path`, it will be saved under
-    /path/to/argus/example_dir/data.hdf5.
+    For instance, if you pass "example_dir/data" to `output_data_path`, it will be saved under
+    /path/to/argus/example_dir/data.
 
-    If the mjpc data has more than n_file_split datapoints, then there will instead be multiple hdf5 files generation.
-    The naming scheme will be /path/desired/data/data_{i}.hdf5, where `i` is the index of the multiple files generated.
+    Under this data/ directory, the structure will be as follows.
+    * You will have a data.hdf5 file that contains metadata, (relative to the data root) paths to the images, and other
+      states like the cube poses and LEAP hand states.
+    * The images will be saved under data/img. Each will be named img{i}_{a,b}.png, where i indicates which pose is
+      being rendered and a or b indicate whether the image was rendered from the first or second camera.
+      [NOTE] images are saved with uint8 pixel values from 0 to 255!
 
     Fields:
         env_exe_path: Path to the Unity environment executable.
@@ -130,12 +134,11 @@ class GenerateDataConfig:
         quat_stdev: Standard deviation of the Gaussian noise added to the quaternion (drawn in tangent space).
         cam_rgb_range: The RGB values the camera can randomize over. Must be subset of the [0, 1] interval.
         train_frac: Fraction of the data to use for training.
-        n_file_split: Number of episodes after which the output data are split into multiple files.
     """
 
     env_exe_path: str = ROOT + "/outputs/unity/leap_env.x86_64"
     mjpc_data_path: str = ROOT + "/outputs/data/sim_residuals.json"
-    output_data_path: str = ROOT + "/outputs/data/cube_unity_data.hdf5"
+    output_data_path: str = ROOT + "/outputs/data/cube_unity_data"
     n_agents: int = 1
     cam1_nominal: Optional[np.ndarray] = None
     cam2_nominal: Optional[np.ndarray] = None
@@ -143,7 +146,6 @@ class GenerateDataConfig:
     quat_stdev: float = 0.05
     cam_rgb_range: tuple[float] = (0.5, 1.0)
     train_frac: float = 0.9
-    n_file_split: int = 2000
 
     def __post_init__(self):
         """Assigning defaults and doing sanity checks."""
@@ -158,9 +160,9 @@ class GenerateDataConfig:
                 self.mjpc_data_path = ROOT + "/" + self.mjpc_data_path
             else:
                 raise FileNotFoundError(f"The specified path does not exist: {self.mjpc_data_path}!")
-        assert Path(self.output_data_path).suffix == ".hdf5", "The data path must have the .hdf5 extension!"
         assert Path(self.mjpc_data_path).suffix == ".json", "The mjpc data must be contained in a json file!"
         assert Path(self.env_exe_path).suffix in [".x86_64", ".app"], "The Unity environment must be an executable!"
+        assert not Path(self.output_data_path).suffix, "The output data path must point to a directory!"
 
         # setting nominal cam positions
         if self.cam1_nominal is None:
@@ -207,7 +209,6 @@ def generate_data(cfg: GenerateDataConfig) -> None:
     bounds_trans = cfg.bounds_trans
     quat_stdev = cfg.quat_stdev
     train_frac = cfg.train_frac
-    n_file_split = cfg.n_file_split
 
     # retrieving the mjpc sim data
     with open(mjpc_data_path) as f:
@@ -224,28 +225,49 @@ def generate_data(cfg: GenerateDataConfig) -> None:
 
     # generating data
     env, behavior_name, expected_action_size = unity_setup(env_exe_path, n_agents=n_agents)
-    images = []
 
-    # if n_episodes is large, chunk the hdf5s into multiple ones
-    if n_agents * n_episodes > n_file_split:
-        n_files = int(np.ceil(n_agents * n_episodes / n_file_split))
-    else:
-        n_files = 1
-        p = output_data_path
-    idx_file = 0
+    # create output directory if it doesn't exist
+    if not os.path.exists(Path(output_data_path)):
+        os.makedirs(Path(output_data_path), exist_ok=True)
+    if not os.path.exists(Path(output_data_path) / "img"):
+        os.makedirs(Path(output_data_path) / "img", exist_ok=True)
 
-    # create parent directory if it doesn't exist
-    parent_dir = Path(output_data_path).parent
-    if not os.path.exists(parent_dir):
-        os.makedirs(parent_dir, exist_ok=True)
+    # randomizing the order, saving hdf5
+    num_data = cube_poses_truncated.shape[0]
+    idxs_shuf = np.random.permutation(num_data)
+    train_test_idx = int(train_frac * num_data)  # index for train/test split
+    img_stems = [f"img/img{i}" for i in range(num_data)]
+    with h5py.File(Path(output_data_path) / f"{Path(output_data_path).stem}.hdf5", "w") as f:
+        # high-level attributes
+        f.attrs["n_cams"] = 2
+        f.attrs["H"] = 376
+        f.attrs["W"] = 672
+
+        # the train/test split
+        cube_poses_train = cube_poses_truncated[idxs_shuf][:train_test_idx]
+        q_leap_train = q_leap_truncated[idxs_shuf][:train_test_idx]
+        img_stems_train = np.array(img_stems)[idxs_shuf][:train_test_idx].tolist()
+        train = f.create_group("train")
+        train.create_dataset("cube_poses", data=cube_poses_train)
+        train.create_dataset("q_leap", data=q_leap_train)
+        train.create_dataset("img_stems", data=img_stems_train)
+
+        cube_poses_test = cube_poses_truncated[idxs_shuf][train_test_idx:]
+        q_leap_test = q_leap_truncated[idxs_shuf][train_test_idx:]
+        img_stems_test = np.array(img_stems)[idxs_shuf][train_test_idx:].tolist()
+        test = f.create_group("test")
+        test.create_dataset("cube_poses", data=cube_poses_test)
+        test.create_dataset("q_leap", data=q_leap_test)
+        test.create_dataset("img_stems", data=img_stems_test)
 
     print("Rendering image data...")
+    img_idx = 0
     for episode in tqdm(range(n_episodes), desc="Episodes"):
         env.reset()
 
         # computing actions to send to Unity agent (these are the states we want to set)
         cube_poses_batch = cube_poses_all[episode * n_agents : (episode + 1) * n_agents]  # (n_agents, 7)
-        q_leap = q_leap_all[episode * n_agents : (episode + 1) * n_agents]  # (n_agents, 16)
+        q_leap_batch = q_leap_all[episode * n_agents : (episode + 1) * n_agents]  # (n_agents, 16)
         cam1_poses = generate_random_camera_poses(
             n_agents,
             cam1_nominal[:3],
@@ -269,7 +291,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         action[:, 17:20] = np.random.uniform(*cam_rgb_range, size=(n_agents, 3))
         action[:, 20:27] = cube_poses_batch
         action[:, 27:34] = light_poses
-        action[:, 34:50] = q_leap
+        action[:, 34:50] = q_leap_batch
 
         # advancing the Unity sim and rendering out observations
         action_tuple = ActionTuple(continuous=action)
@@ -282,49 +304,14 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         cam2_obs = decision_steps.obs[1]  # (n_agents, 3, H, W)
 
         # bagging the data
-        images.append(np.concatenate([cam1_obs, cam2_obs], axis=1).reshape(n_agents, 6, 376, 672))
-
-        # chunk when needed
-        if len(images) >= cfg.n_file_split or episode == n_episodes - 1:
-            if n_files == 1:
-                p = output_data_path
-            else:
-                filename = Path(output_data_path).stem  # name without extension
-                if not os.path.exists(parent_dir / f"{filename}"):
-                    os.makedirs(parent_dir / f"{filename}", exist_ok=True)
-                p = parent_dir / f"{filename}" / f"{filename}_{idx_file}.hdf5"
-
-            print(f"Saving data to file {idx_file + 1}/{n_files}...")
-            idxs = np.random.permutation(len(images))  # shuffle each chunk individually
-            train_test_idx = int(train_frac * len(images) * n_agents)  # index for train/test split
-            images_train = np.concatenate(images, axis=0)[idxs][:train_test_idx, ...]
-            images_test = np.concatenate(images, axis=0)[idxs][train_test_idx:, ...]
-
-            idx_start = n_file_split * idx_file
-            idx_end = n_file_split * (idx_file + 1) if idx_file < n_files - 1 else n_episodes * n_agents
-            cube_poses_train = cube_poses_truncated[idx_start:idx_end][idxs][:train_test_idx]
-            cube_poses_test = cube_poses_truncated[idx_start:idx_end][idxs][train_test_idx:]
-
-            q_leap_train = q_leap_truncated[idx_start:idx_end][idxs][:train_test_idx]
-            q_leap_test = q_leap_truncated[idx_start:idx_end][idxs][train_test_idx:]
-            idx_file += 1
-
-            with h5py.File(p, "w") as f:
-                f.attrs["n_cams"] = 2
-                f.attrs["H"] = 376
-                f.attrs["W"] = 672
-
-                train = f.create_group("train")
-                train.create_dataset("images", data=images_train)
-                train.create_dataset("cube_poses", data=cube_poses_train)
-                train.create_dataset("q_leap", data=q_leap_train)
-
-                test = f.create_group("test")
-                test.create_dataset("images", data=images_test)
-                test.create_dataset("cube_poses", data=cube_poses_test)
-                test.create_dataset("q_leap", data=q_leap_test)
-
-            images = []
+        imgs = np.concatenate([cam1_obs, cam2_obs], axis=1).reshape(n_agents, 6, 376, 672)
+        for _ in range(n_agents):
+            # [NOTE] images are saved with uint8 pixel values from 0 to 255!
+            img_a = Image.fromarray((imgs[0, :3, ...].transpose(1, 2, 0) * 255).astype(np.uint8))
+            img_b = Image.fromarray((imgs[0, 3:, ...].transpose(1, 2, 0) * 255).astype(np.uint8))
+            img_a.save(Path(output_data_path) / f"img/img{img_idx}_a.png")
+            img_b.save(Path(output_data_path) / f"img/img{img_idx}_b.png")
+            img_idx += 1
 
     env.close()
 
