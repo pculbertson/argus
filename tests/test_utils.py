@@ -1,11 +1,13 @@
 import numpy as np
+import pypose as pp
+import pytest
 import torch
 
 from argus.utils import (
-    convert_mjpc_q_leap_to_unity,
     convert_pose_mjpc_to_unity,
     convert_pose_unity_to_mjpc,
     convert_unity_quat_to_euler,
+    get_pose,
     xyzwxyz_to_xyzxyzw_SE3,
     xyzxyzw_to_xyzwxyz_SE3,
 )
@@ -35,6 +37,13 @@ def test_xyzxyzw_to_xyzwxyz_SE3():
     xyzxyzw = torch.tensor([[1, 2, 3, 0.6, 0.7, 0.8, 0.5], [4, 5, 6, 0.2, 0.3, 0.4, 0.1]])
     expected = torch.tensor([[1, 2, 3, 0.5, 0.6, 0.7, 0.8], [4, 5, 6, 0.1, 0.2, 0.3, 0.4]])
     assert torch.allclose(xyzxyzw_to_xyzwxyz_SE3(xyzxyzw), expected)
+
+    # with pypose
+    xyzxyzw = pp.randn_SE3(2)
+    try:
+        assert torch.allclose(xyzxyzw_to_xyzwxyz_SE3(xyzwxyz_to_xyzxyzw_SE3(xyzxyzw)), xyzxyzw)
+    except Exception:
+        pytest.fail("The conversion failed on a pypose SE3 object!")
 
 
 def test_convert_pose_mjpc_to_unity() -> None:
@@ -67,3 +76,11 @@ def test_convert_pose_unity_to_mjpc() -> None:
     pose_mjpc = np.random.rand(2, 7)  # implicitly tests batching
     pose_mjpc[..., 3:] /= np.linalg.norm(pose_mjpc[..., 3:], axis=-1, keepdims=True)
     assert np.allclose(pose_mjpc, convert_pose_unity_to_mjpc(convert_pose_mjpc_to_unity(pose_mjpc)))
+
+
+def test_get_pose(dummy_model) -> None:
+    """Tests the get_pose function with a compiled model."""
+    x = torch.randn(2, 6, 376, 672)
+    model_compiled = torch.compile(dummy_model, mode="reduce-overhead")
+    pose = get_pose(x, model_compiled)
+    assert pose.shape == (2, 7)  # should be a pypose object

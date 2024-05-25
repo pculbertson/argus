@@ -1,6 +1,9 @@
+import fnmatch
+import os
 from typing import Callable
 
 import numpy as np
+import pypose as pp
 import torch
 from scipy.spatial.transform import Rotation as R
 
@@ -103,42 +106,6 @@ def convert_unity_quat_to_euler(quat: np.ndarray) -> np.ndarray:
     return euler
 
 
-def convert_mjpc_q_leap_to_unity(q_mjpc: np.ndarray) -> np.ndarray:
-    """Converts the hand configuration from mjpc's to Unity's coordinate system.
-
-    * The mjpc convention is depth-first with finger order index, middle, ring, thumb.
-    * The Unity convention is breadth-first with finger order middle, thumb, ring, and index.
-
-    Args:
-        q_mjpc: The hand state in Mujoco's coordinate system. Shape=(..., 16).
-
-    Returns:
-        q_unity: The hand state in Unity's coordinate system. Shape=(..., 16).
-    """
-    new_idxs = np.array(
-        [
-            4,
-            12,
-            8,
-            0,  # mcp joint indices on the mjpc LEAP hand
-            5,
-            13,
-            9,
-            1,  # pip joint indices on the mjpc LEAP hand
-            6,
-            14,
-            10,
-            2,  # dip joint indices on the mjpc LEAP hand
-            7,
-            15,
-            11,
-            3,  # fingertip joints
-        ]
-    )
-    q_unity = q_mjpc[..., new_idxs]
-    return q_unity
-
-
 def xyzwxyz_to_xyzxyzw_SE3(xyzwxyz: torch.Tensor) -> torch.Tensor:
     """Converts a tensor of 7d poses with quats from (w, x, y, z) to (x, y, z, w) order.
 
@@ -201,3 +168,81 @@ def time_torch_fn(fn: Callable[[], torch.Tensor]) -> tuple[torch.Tensor, float]:
     end.record()
     torch.cuda.synchronize()
     return result, start.elapsed_time(end) / 1000
+
+
+# ######### #
+# INFERENCE #
+# ######### #
+
+
+def get_pose(images: torch.Tensor, model: torch.nn.Module) -> pp.LieTensor:
+    """Get the pose of the cube from the images.
+
+    Args:
+        images: The images of shape (B, 3 * n_cams, W, H), concatenated along the channel dimension.
+        model: The model to use.
+
+    Returns:
+        pose: The predicted pose of the cube expressed as a 7d pose. The quaternion elements are in (x, y, z, w) order.
+    """
+    return pp.se3(model(images)).Exp()
+
+
+# ######## #
+# PRINTING #
+# ######## #
+
+
+def _get_tree_string(path: str, extension: str, indent="") -> str:
+    """Returns a tree of the requested path as a string if the leaves match the extension.
+
+    Args:
+        path: The path to print the tree of.
+        extension: The extension to filter the files by.
+        indent: The current indentation level.
+
+    Returns:
+        A string representation of the directory tree.
+    """
+    tree_string = ""
+
+    # get all files in current path
+    items = os.listdir(path)
+    items.sort()
+
+    # Filter out files that don't match the extension
+    items = [
+        item for item in items if os.path.isdir(os.path.join(path, item)) or fnmatch.fnmatch(item, f"*.{extension}")
+    ]
+
+    for i, item in enumerate(items):
+        full_path = os.path.join(path, item)
+
+        # Add with tree formatting
+        if i == len(items) - 1:  # Last item in the directory
+            tree_string += indent + "└── " + item + "\n"
+            new_indent = indent + "    "
+        else:  # Not the last item
+            tree_string += indent + "├── " + item + "\n"
+            new_indent = indent + "│   "
+
+        # If the item is a directory, recursively get its tree string
+        if os.path.isdir(full_path):
+            tree_string += _get_tree_string(full_path, extension, new_indent)
+
+    return tree_string
+
+
+def get_tree_string(path: str, extension: str) -> str:
+    """Prints the tree of the requested path as a string if the leaves match the extension in blue.
+
+    Args:
+        path: The path to print the tree of.
+        extension: The extension to filter the files by.
+
+    Returns:
+        A string representation of the directory tree starting from the given path.
+    """
+    BLUE = "\033[94m"
+    RESET = "\033[0m"
+    return BLUE + path + "\n" + _get_tree_string(path, extension) + RESET

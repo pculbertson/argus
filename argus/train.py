@@ -11,11 +11,12 @@ import wandb
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
+from torchvision import transforms
 from tqdm import tqdm
 from wandb.util import generate_id
 
 from argus import ROOT
-from argus.data import CameraCubePoseDataset, CameraCubePoseDatasetConfig
+from argus.data import Augmentation, AugmentationConfig, CameraCubePoseDataset, CameraCubePoseDatasetConfig
 from argus.models import NCameraCNN, NCameraCNNConfig
 
 torch.set_float32_matmul_precision("high")
@@ -25,22 +26,33 @@ torch.set_float32_matmul_precision("high")
 class TrainConfig:
     """Configuration for training.
 
+    For all path fields, you can either specify an absolute path, a relative path (with respect to where you are
+    currently calling the data generation function), or a local path RELATIVE TO THE ROOT OF THE PACKAGE IN YOUR SYSTEM!
+    For instance, if you pass "example_dir" to `save_dir`, the model will be saved under /path/to/argus/example_dir.
+
     Fields:
+        dataset_config: The configuration for the dataset.
+        model_config: The configuration for the model.
+        compile_model: Whether to compile the model.
         batch_size: The batch size.
         learning_rate: The learning rate.
         n_epochs: The number of epochs.
         device: The device to train on.
         max_grad_norm: The maximum gradient norm.
+        num_gpus: The number of GPUs to train with.
+        random_seed: The random seed.
         val_epochs: The number of epochs between validation.
         print_epochs: The number of epochs between printing.
         save_epochs: The number of epochs between saving.
         save_dir: The directory to save the model.
-        model_config: The configuration for the model.
-        dataset_config: The configuration for the dataset.
-        compile_model: Whether to compile the model.
         wandb_project: The wandb project name.
         wandb_log: Whether to log to wandb.
     """
+
+    # model and dataset parameters
+    dataset_config: CameraCubePoseDatasetConfig
+    model_config: NCameraCNNConfig = NCameraCNNConfig()
+    compile_model: bool = False  # WARNING: compiling the model during training makes it hard to load later
 
     # training parameters
     batch_size: int = 64
@@ -48,6 +60,8 @@ class TrainConfig:
     n_epochs: int = 100
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     max_grad_norm: float = 1.0
+    num_gpus: int = torch.cuda.device_count()
+    random_seed: int = 42
 
     # validation, printing, and saving
     val_epochs: int = 1
@@ -55,12 +69,9 @@ class TrainConfig:
     save_epochs: int = 5
     save_dir: str = ROOT + "/outputs/models"
 
-    # model and dataset parameters
-    model_config: NCameraCNNConfig = NCameraCNNConfig()
-    dataset_config: CameraCubePoseDatasetConfig = CameraCubePoseDatasetConfig(
-        ROOT + "/outputs/data/cube_unity_data.hdf5"
-    )
-    compile_model: bool = False  # WARNING: compiling the model during training makes it hard to load later
+    # data augmentation
+    augmentation_config: AugmentationConfig = AugmentationConfig()
+    use_augmentation: bool = True
 
     # wandb
     wandb_project: str = "argus-estimator"
@@ -69,6 +80,16 @@ class TrainConfig:
     def __post_init__(self) -> None:
         """Assert that save_dir is a string."""
         assert isinstance(self.save_dir, str)
+        if not os.path.exists(self.save_dir):  # absolute path
+            if os.path.exists(ROOT + "/" + self.save_dir):
+                self.save_dir = ROOT + "/" + self.save_dir
+            else:
+                os.makedirs(self.save_dir, exist_ok=True)
+
+        assert self.num_gpus > 0, "The number of GPUs must be greater than 0!"
+        assert (
+            self.num_gpus <= torch.cuda.device_count()
+        ), "The number of GPUs must be less than or equal to the number of GPUs on the system!"
 
 
 def geometric_loss_fn(pred: torch.Tensor, target: pp.LieTensor) -> torch.Tensor:
@@ -90,12 +111,27 @@ def geometric_loss_fn(pred: torch.Tensor, target: pp.LieTensor) -> torch.Tensor:
 
 def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCameraCNN, Optimizer, ReduceLROnPlateau]:
     """Sets up the training."""
-    # dataloaders
-    train_dataset = CameraCubePoseDataset(cfg.dataset_config, train=True)
-    train_dataloader = DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True)
+    # set random seed
+    torch.cuda.manual_seed_all(cfg.random_seed)
+    torch.manual_seed(cfg.random_seed)
+    np.random.seed(cfg.random_seed)
 
-    val_dataset = CameraCubePoseDataset(cfg.dataset_config, train=False)
-    val_dataloader = DataLoader(val_dataset, batch_size=cfg.batch_size, shuffle=False)
+    # dataloaders and augmentations
+    print("Creating dataloaders...")
+    num_workers = 16 * cfg.num_gpus  # TODO(ahl): what's the effect of num_gpus?
+    try:
+        train_dataset = CameraCubePoseDataset(cfg.dataset_config, cfg_aug=cfg.augmentation_config, train=True)
+        train_dataloader = DataLoader(
+            train_dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=num_workers, pin_memory=True
+        )
+
+        val_dataset = CameraCubePoseDataset(cfg.dataset_config, cfg_aug=cfg.augmentation_config, train=False)
+        val_dataloader = DataLoader(
+            val_dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=num_workers, pin_memory=True
+        )
+
+    except RuntimeError:
+        print("Data too large to load into memory. Please consider using a larger machine or a smaller dataset!")
 
     # model
     model = NCameraCNN(cfg.model_config).to(cfg.device)
@@ -104,7 +140,7 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
         print("Compiling the model...")
         model(
             torch.zeros(
-                (cfg.batch_size, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W),
+                (cfg.batch_size, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W),
                 device=cfg.device,
             )
         )  # warming up the optimized model by running dummy inputs
@@ -115,14 +151,14 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
         if train_leftover != 0:
             model(
                 torch.zeros(
-                    (train_leftover, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W),
+                    (train_leftover, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W),
                     device=cfg.device,
                 )
             )
         if val_leftover != 0:
             model(
                 torch.zeros(
-                    (val_leftover, cfg.model_config.n_cams * 3, cfg.model_config.H, cfg.model_config.W),
+                    (val_leftover, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W),
                     device=cfg.device,
                 )
             )
@@ -140,27 +176,45 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
     if cfg.wandb_log:
         wandb.init(project=cfg.wandb_project, config=cfg, id=wandb_id, resume="allow")
 
-    return train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn, wandb_id
+    return (
+        train_dataloader,
+        val_dataloader,
+        model,
+        optimizer,
+        scheduler,
+        loss_fn,
+        wandb_id,
+    )
 
 
 def train(cfg: TrainConfig) -> None:
     """Main training loop."""
-    train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn, wandb_id = initialize_training(cfg)
-    for epoch in range(cfg.n_epochs):
+    (
+        train_dataloader,
+        val_dataloader,
+        model,
+        optimizer,
+        scheduler,
+        loss_fn,
+        wandb_id,
+    ) = initialize_training(cfg)
+
+    for epoch in tqdm(range(cfg.n_epochs), desc="Epoch"):
         # training loop
         model.train()
-        avg_loss_in_epoch = 0.0
-        for example in tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{cfg.n_epochs}", total=len(train_dataloader)):
+        avg_loss_in_epoch = []
+        for example in tqdm(train_dataloader, desc="Iterations", total=len(train_dataloader), leave=False):
             # loading data
-            images = example["images"].to(cfg.device).to(torch.float32)
-            cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)  # quats are (x, y, z, w)
+            images = example["images"].to(cfg.device).to(torch.float32)  # (B, 6, H, W)
+            cube_pose_SE3 = pp.SE3(example["cube_pose"].to(cfg.device).to(torch.float32))  # quats are (x, y, z, w)
 
             # forward pass
             cube_pose_pred_se3 = model(images)  # therefore, the predicted quats are (x, y, z, w)
-            loss = torch.mean(loss_fn(cube_pose_pred_se3, cube_pose_SE3))
+            losses = loss_fn(cube_pose_pred_se3, cube_pose_SE3)
+            loss = torch.mean(losses)
             optimizer.zero_grad()
             loss.backward()
-            avg_loss_in_epoch += loss.item()
+            avg_loss_in_epoch.append(losses)
             if cfg.wandb_log:
                 wandb.log({"loss": loss.item()})
 
@@ -169,21 +223,21 @@ def train(cfg: TrainConfig) -> None:
             optimizer.step()
 
         if epoch % cfg.print_epochs == 0:
-            print(f"    Avg. Loss in Epoch: {avg_loss_in_epoch / len(train_dataloader)}")
+            print(f"    Avg. Loss in Epoch: {torch.mean(torch.cat(avg_loss_in_epoch)).item()}")
 
         # validation loop
         if epoch % cfg.val_epochs == 0:
             model.eval()
             with torch.no_grad():
-                val_loss = 0
+                val_loss = []
                 for example in val_dataloader:
                     images = example["images"].to(cfg.device).to(torch.float32)
-                    cube_pose_SE3 = example["cube_pose"].to(cfg.device).to(torch.float32)
+                    cube_pose_SE3 = pp.SE3(example["cube_pose"].to(cfg.device).to(torch.float32))
                     cube_pose_pred_se3 = model(images)
-                    loss = torch.mean(loss_fn(cube_pose_pred_se3, cube_pose_SE3))
-                    val_loss += loss.item()
+                    losses = loss_fn(cube_pose_pred_se3, cube_pose_SE3)
+                    val_loss.append(losses)
 
-                val_loss /= len(val_dataloader)
+                val_loss = torch.mean(torch.cat(val_loss)).item()
                 if cfg.wandb_log:
                     wandb.log({"val_loss": val_loss})
                 print(f"    Validation loss: {val_loss}")
@@ -195,6 +249,7 @@ def train(cfg: TrainConfig) -> None:
             if cfg.save_dir is not None:
                 save_dir = Path(cfg.save_dir)
             else:
+                # Make outputs folder if not there.
                 save_dir = Path(ROOT + "/outputs/models")
             os.makedirs(save_dir, exist_ok=True)
             torch.save(model.state_dict(), save_dir / f"{wandb_id}.pth")

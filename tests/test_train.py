@@ -29,8 +29,14 @@ def test_geometric_loss_fn() -> None:
     loss = geometric_loss_fn(pred, target)
     assert loss.shape == torch.Size([32])
 
+    pred = pp.randn_se3(32)
+    target = pred.Exp()
+    loss = geometric_loss_fn(pred, target)
+    assert loss.shape == torch.Size([32])
+    assert torch.allclose(loss, torch.zeros(32))
 
-def test_train(dummy_save_dir, dummy_data_path) -> None:
+
+def test_train(dummy_save_dir, dummy_data_path, dummy_model) -> None:
     """Tests that the training loop runs all the way through properly for 1 iteration."""
     train_cfg = TrainConfig(
         batch_size=10,
@@ -38,6 +44,7 @@ def test_train(dummy_save_dir, dummy_data_path) -> None:
         n_epochs=1,
         device="cuda",
         max_grad_norm=100.0,
+        random_seed=42,
         val_epochs=1,
         print_epochs=1,
         save_epochs=1,
@@ -60,3 +67,13 @@ def test_train(dummy_save_dir, dummy_data_path) -> None:
         pytest.fail("The training loop did not run all the way through!")
     assert Path(dummy_save_dir).exists()
     assert any(Path(dummy_save_dir).glob("*.pth"))
+
+    # for efficiency, also tests the random seed by training the same model twice
+    dummy_model.load_state_dict(torch.load(list(Path(dummy_save_dir).glob("*.pth"))[0]))
+    output1 = dummy_model(torch.ones(1, 2 * 3, 376, 672))
+    for p in Path(dummy_save_dir).glob("*.pth"):
+        p.unlink()  # deletes the old model
+    train(train_cfg)
+    dummy_model.load_state_dict(torch.load(list(Path(dummy_save_dir).glob("*.pth"))[0]))
+    output2 = dummy_model(torch.ones(1, 2 * 3, 376, 672))
+    assert torch.allclose(output1, output2)
