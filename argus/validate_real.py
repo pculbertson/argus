@@ -1,16 +1,14 @@
 import os
-
 from dataclasses import dataclass
-from argus.utils import get_pose, xyzxyzw_to_xyzwxyz_SE3
 from pathlib import Path
 
 import h5py
 import kornia
 import matplotlib.pyplot as plt
+import mujoco
 import torch
 import tyro
 
-import mujoco
 from argus import ROOT
 from argus.data import CameraCubePoseDatasetConfig
 from argus.models import NCameraCNN, NCameraCNNConfig

@@ -1,11 +1,12 @@
-import mujoco
+import json
+from pathlib import Path
+
+import h5py
 import matplotlib.pyplot as plt
+import mujoco
 import numpy as np
 
 from argus import ROOT
-from pathlib import Path
-import h5py
-import json
 
 USE_JSON = False
 

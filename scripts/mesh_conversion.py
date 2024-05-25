@@ -1,6 +1,8 @@
-import trimesh
-from argus import ROOT
 from pathlib import Path
+
+import trimesh
+
+from argus import ROOT
 
 if __name__ == "__main__":
     mesh_path = Path(ROOT) / "LeapProject/Assets/urdf/meshes"

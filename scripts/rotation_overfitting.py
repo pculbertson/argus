@@ -1,5 +1,6 @@
-import torch
+# flake8: noqa
 import pypose as pp
+import torch
 import torchvision.models as models
 
 
