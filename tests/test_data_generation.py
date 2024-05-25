@@ -42,7 +42,6 @@ def test_datagen(tmp_path_factory, dummy_json_path) -> None:
 
     cube_poses = []
     with h5py.File(parent_dir / f"{parent_dir.stem}.hdf5", "r") as f:
-        breakpoint()
         for pose in f["train"]["cube_poses"]:
             cube_poses.append(pose)
         for pose in f["test"]["cube_poses"]:
