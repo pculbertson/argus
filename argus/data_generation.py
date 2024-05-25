@@ -98,7 +98,7 @@ def generate_random_light_source_poses(n_agents: int) -> np.ndarray:
     y = np.random.uniform(2.0, 3.0, size=n_agents)  # 2-3m, this is height in Unity
 
     # rotations
-    rot_x_deg = np.random.uniform(30.0, 150.0, size=n_agents)  # 30-150 degrees
+    rot_x_deg = np.random.uniform(-20.0, 20.0, size=n_agents)  # 30-150 degrees
     rot_y_deg = np.random.uniform(0.0, 360.0, size=n_agents)  # 0-360 degrees
     rot_z_deg = np.random.uniform(-60.0, -60.0, size=n_agents)  # +/- 60 degrees
     quat_xyzw = R.from_euler("XYZ", np.stack([rot_x_deg, rot_y_deg, rot_z_deg], axis=-1), degrees=True).as_quat()
@@ -218,6 +218,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
     cube_poses_mjpc = q_all[..., :7]
     cube_poses_all = convert_pose_mjpc_to_unity(cube_poses_mjpc)  # (n_data, 7), UNITY coords
     q_leap_all = q_all[..., 7:]  # (n_data, 16)
+
     n_episodes = cube_poses_all.shape[0] // n_agents
     _cube_poses_truncated = cube_poses_all[: n_agents * n_episodes, :]  # (n_agents * n_episodes, 7)
     cube_poses_truncated = convert_pose_unity_to_mjpc(_cube_poses_truncated)  # MJPC coords
