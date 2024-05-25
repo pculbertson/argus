@@ -91,7 +91,14 @@ public class AgentCallback : Agent {
         lightSource.transform.localPosition = new Vector3(actionList[27], actionList[28], actionList[29]);
         Vector4 quat_light = new Vector4(actionList[30], actionList[31], actionList[32], actionList[33]);
         quat_light.Normalize();
-        lightSource.transform.localRotation = new Quaternion(quat_light[0], quat_light[1], quat_light[2], quat_light[3]);
+
+        // Set the light source to look at the cube
+        Vector3 lookAt = cube.transform.position - lightSource.transform.position;
+        lightSource.transform.rotation = Quaternion.LookRotation(lookAt);
+
+        // Take the action as a delta from this current rotation
+        Quaternion delta_rotation = new Quaternion(quat_light[0], quat_light[1], quat_light[2], quat_light[3]);
+        lightSource.transform.rotation = delta_rotation * lightSource.transform.rotation;
 
         // set the hand states
         var jointPositions = new float[16];
