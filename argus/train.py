@@ -60,7 +60,7 @@ class TrainConfig:
 
     # training parameters
     batch_size: int = 32  # something maxes the GPU throughput far before the memory is saturated
-    learning_rate: float = 1e-3
+    learning_rate: float = 1e-4
     n_epochs: int = 100
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     max_grad_norm: float = 1.0
