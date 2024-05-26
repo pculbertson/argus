@@ -45,6 +45,8 @@ class TrainConfig:
         max_grad_norm: The maximum gradient norm.
         num_gpus: The number of GPUs to train with.
         random_seed: The random seed.
+        multigpu: Whether to use multiple GPUs.
+        amp: Whether to use automatic mixed precision.
         val_epochs: The number of epochs between validation.
         print_epochs: The number of epochs between printing.
         save_epochs: The number of epochs between saving.
@@ -67,8 +69,9 @@ class TrainConfig:
     num_gpus: int = torch.cuda.device_count()
     random_seed: int = 42
 
-    # multigpu
+    # speed optimizations
     multigpu: bool = False
+    amp: bool = False
 
     # validation, printing, and saving
     val_epochs: int = 1
@@ -142,6 +145,8 @@ def initialize_training(
     else:
         print("Creating dataloaders...")
     num_workers = 8 if cfg.multigpu else 16  # completely empirically determined
+    if cfg.amp:
+        num_workers *= 2  # more workers for faster data loading with mixed precision
     try:
         train_dataset = CameraCubePoseDataset(cfg.dataset_config, cfg_aug=cfg.augmentation_config, train=True)
         val_dataset = CameraCubePoseDataset(cfg.dataset_config, cfg_aug=cfg.augmentation_config, train=False)
@@ -226,6 +231,7 @@ def initialize_training(
     # optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate)
     scheduler = ReduceLROnPlateau(optimizer, "min", patience=5, factor=0.5)
+    scaler = torch.cuda.amp.GradScaler(enabled=cfg.amp)
 
     # loss function
     loss_fn = geometric_loss_fn
@@ -245,6 +251,7 @@ def initialize_training(
         wandb_id,
         train_sampler,
         val_sampler,
+        scaler,
     )
 
 
@@ -267,6 +274,7 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
         wandb_id,
         train_sampler,
         val_sampler,
+        scaler,
     ) = initialize_training(cfg, rank=rank)
 
     # local device
@@ -287,23 +295,30 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
         for example in tqdm(
             train_dataloader, desc="Iterations", total=len(train_dataloader), leave=False, disable=(rank != 0)
         ):
-            # loading data
-            images = example["images"].to(device)  # (B, 6, H, W)
-            cube_pose_SE3 = pp.SE3(example["cube_pose"].to(device))  # quats are (x, y, z, w)
+            with torch.autocast(
+                device_type="cuda" if device.type == "cuda" else "cpu", dtype=torch.float16, enabled=cfg.amp
+            ):
+                # loading data
+                images = example["images"].to(device)  # (B, 6, H, W)
+                cube_pose_SE3 = pp.SE3(example["cube_pose"].to(device))  # quats are (x, y, z, w)
 
-            # forward pass
-            cube_pose_pred_se3 = model(images)  # therefore, the predicted quats are (x, y, z, w)
-            losses = loss_fn(cube_pose_pred_se3, cube_pose_SE3)
+                # forward pass
+                cube_pose_pred_se3 = model(images)  # therefore, the predicted quats are (x, y, z, w)
+
+            losses = loss_fn(cube_pose_pred_se3.to(torch.float32), cube_pose_SE3)
             loss = torch.mean(losses)
-            optimizer.zero_grad()
-            loss.backward()
-            avg_loss_in_epoch.append(losses)
+
             if cfg.wandb_log and (not cfg.multigpu or rank == 0):
                 wandb.log({"loss": loss.item()})
 
             # backward pass
+            optimizer.zero_grad()
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.max_grad_norm)
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
+            avg_loss_in_epoch.append(losses)
 
         if epoch % cfg.print_epochs == 0:
             rank_print(f"    Avg. Loss in Epoch: {torch.mean(torch.cat(avg_loss_in_epoch)).item()}", rank=rank)
@@ -316,8 +331,12 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
                 for example in val_dataloader:
                     images = example["images"].to(device)
                     cube_pose_SE3 = pp.SE3(example["cube_pose"].to(device))
-                    cube_pose_pred_se3 = model(images)
-                    losses = loss_fn(cube_pose_pred_se3, cube_pose_SE3)
+                    with torch.autocast(
+                        device_type="cuda" if device.type == "cuda" else "cpu", dtype=torch.float16, enabled=cfg.amp
+                    ):
+                        cube_pose_pred_se3 = model(images)
+
+                    losses = loss_fn(cube_pose_pred_se3.to(torch.float32), cube_pose_SE3)
                     val_loss.append(losses)
 
                 val_loss = torch.mean(torch.cat(val_loss)).item()
