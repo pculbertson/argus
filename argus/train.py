@@ -5,12 +5,16 @@ from pathlib import Path
 import numpy as np
 import pypose as pp
 import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
 import torch.nn as nn
 import tyro
 import wandb
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from torchvision import transforms
 from tqdm import tqdm
 from wandb.util import generate_id
@@ -55,13 +59,16 @@ class TrainConfig:
     compile_model: bool = False  # WARNING: compiling the model during training makes it hard to load later
 
     # training parameters
-    batch_size: int = 64
+    batch_size: int = 32  # something maxes the GPU throughput far before the memory is saturated
     learning_rate: float = 1e-3
     n_epochs: int = 100
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     max_grad_norm: float = 1.0
     num_gpus: int = torch.cuda.device_count()
     random_seed: int = 42
+
+    # multigpu
+    multigpu: bool = False
 
     # validation, printing, and saving
     val_epochs: int = 1
@@ -109,39 +116,91 @@ def geometric_loss_fn(pred: torch.Tensor, target: pp.LieTensor) -> torch.Tensor:
     return torch.sum((pp.se3(pred).Exp() @ target.Inv()).Log() ** 2, axis=-1)
 
 
-def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCameraCNN, Optimizer, ReduceLROnPlateau]:
+def initialize_training(
+    cfg: TrainConfig, rank: int = 0
+) -> tuple[DataLoader, DataLoader, NCameraCNN, Optimizer, ReduceLROnPlateau]:
     """Sets up the training."""
     # set random seed
     torch.cuda.manual_seed_all(cfg.random_seed)
     torch.manual_seed(cfg.random_seed)
     np.random.seed(cfg.random_seed)
 
+    # local device
+    if cfg.multigpu:
+        device = torch.device("cuda", rank)
+    else:
+        device = torch.device(cfg.device)
+
+    if cfg.multigpu:
+        os.environ["MASTER_ADDR"] = "localhost"
+        os.environ["MASTER_PORT"] = "12355"
+        dist.init_process_group("nccl", rank=rank, world_size=cfg.num_gpus)
+
     # dataloaders and augmentations
-    print("Creating dataloaders...")
-    num_workers = 16 * cfg.num_gpus  # TODO(ahl): what's the effect of num_gpus?
+    if cfg.multigpu:
+        print(f"Creating rank {rank} dataloaders...")
+    else:
+        print("Creating dataloaders...")
+    num_workers = 8 if cfg.multigpu else 16  # completely empirically determined
     try:
         train_dataset = CameraCubePoseDataset(cfg.dataset_config, cfg_aug=cfg.augmentation_config, train=True)
-        train_dataloader = DataLoader(
-            train_dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=num_workers, pin_memory=True
-        )
-
         val_dataset = CameraCubePoseDataset(cfg.dataset_config, cfg_aug=cfg.augmentation_config, train=False)
+
+        if cfg.multigpu:
+            train_sampler = DistributedSampler(
+                train_dataset,
+                num_replicas=cfg.num_gpus,
+                rank=rank,
+                shuffle=True,
+            )
+            val_sampler = DistributedSampler(
+                val_dataset,
+                num_replicas=cfg.num_gpus,
+                rank=rank,
+                shuffle=False,
+            )
+            train_shuffle = None
+            val_shuffle = None
+        else:
+            train_sampler = None
+            val_sampler = None
+            train_shuffle = True
+            val_shuffle = False
+
+        train_dataloader = DataLoader(
+            train_dataset,
+            batch_size=cfg.batch_size,
+            shuffle=train_shuffle,
+            num_workers=num_workers,
+            pin_memory=True,
+            sampler=train_sampler,
+            multiprocessing_context="fork",  # this seems super important for speed when using multigpu!
+        )
         val_dataloader = DataLoader(
-            val_dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=num_workers, pin_memory=True
+            val_dataset,
+            batch_size=cfg.batch_size,
+            shuffle=val_shuffle,
+            num_workers=num_workers,
+            pin_memory=True,
+            sampler=val_sampler,
+            multiprocessing_context="fork",  # this seems super important for speed when using multigpu!
         )
 
     except RuntimeError:
         print("Data too large to load into memory. Please consider using a larger machine or a smaller dataset!")
 
     # model
-    model = NCameraCNN(cfg.model_config).to(cfg.device)
+    if cfg.multigpu:
+        model = DDP(NCameraCNN(cfg.model_config).to(device), device_ids=[rank])
+    else:
+        model = NCameraCNN(cfg.model_config).to(device)
     if cfg.compile_model:
         model = torch.compile(model, mode="reduce-overhead")  # compiled model
         print("Compiling the model...")
         model(
             torch.zeros(
                 (cfg.batch_size, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W),
-                device=cfg.device,
+                device=device,
             )
         )  # warming up the optimized model by running dummy inputs
 
@@ -152,14 +211,14 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
             model(
                 torch.zeros(
                     (train_leftover, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W),
-                    device=cfg.device,
+                    device=device,
                 )
             )
         if val_leftover != 0:
             model(
                 torch.zeros(
                     (val_leftover, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W),
-                    device=cfg.device,
+                    device=device,
                 )
             )
         print("Model compiled!")
@@ -173,7 +232,7 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
 
     # wandb
     wandb_id = generate_id()
-    if cfg.wandb_log:
+    if cfg.wandb_log and rank == 0:
         wandb.init(project=cfg.wandb_project, config=cfg, id=wandb_id, resume="allow")
 
     return (
@@ -184,11 +243,20 @@ def initialize_training(cfg: TrainConfig) -> tuple[DataLoader, DataLoader, NCame
         scheduler,
         loss_fn,
         wandb_id,
+        train_sampler,
+        val_sampler,
     )
 
 
-def train(cfg: TrainConfig) -> None:
+def rank_print(msg: str, rank: int = 0) -> None:
+    """Prints only if rank is 0."""
+    if rank == 0:
+        print(msg)
+
+
+def train(cfg: TrainConfig, rank: int = 0) -> None:
     """Main training loop."""
+    # initializing the training
     (
         train_dataloader,
         val_dataloader,
@@ -197,16 +265,31 @@ def train(cfg: TrainConfig) -> None:
         scheduler,
         loss_fn,
         wandb_id,
-    ) = initialize_training(cfg)
+        train_sampler,
+        val_sampler,
+    ) = initialize_training(cfg, rank=rank)
 
-    for epoch in tqdm(range(cfg.n_epochs), desc="Epoch"):
+    # local device
+    if cfg.multigpu:
+        rank_print("Progress bar only shown for rank 0.", rank=rank)
+        device = torch.device("cuda", rank)
+    else:
+        device = torch.device(cfg.device)
+
+    for epoch in tqdm(range(cfg.n_epochs), desc="Epoch", disable=(rank != 0)):
+        if cfg.multigpu:
+            dist.barrier()
+            train_sampler.set_epoch(epoch)
+
         # training loop
         model.train()
         avg_loss_in_epoch = []
-        for example in tqdm(train_dataloader, desc="Iterations", total=len(train_dataloader), leave=False):
+        for example in tqdm(
+            train_dataloader, desc="Iterations", total=len(train_dataloader), leave=False, disable=(rank != 0)
+        ):
             # loading data
-            images = example["images"].to(cfg.device).to(torch.float32)  # (B, 6, H, W)
-            cube_pose_SE3 = pp.SE3(example["cube_pose"].to(cfg.device).to(torch.float32))  # quats are (x, y, z, w)
+            images = example["images"].to(device)  # (B, 6, H, W)
+            cube_pose_SE3 = pp.SE3(example["cube_pose"].to(device))  # quats are (x, y, z, w)
 
             # forward pass
             cube_pose_pred_se3 = model(images)  # therefore, the predicted quats are (x, y, z, w)
@@ -215,7 +298,7 @@ def train(cfg: TrainConfig) -> None:
             optimizer.zero_grad()
             loss.backward()
             avg_loss_in_epoch.append(losses)
-            if cfg.wandb_log:
+            if cfg.wandb_log and (not cfg.multigpu or rank == 0):
                 wandb.log({"loss": loss.item()})
 
             # backward pass
@@ -223,7 +306,7 @@ def train(cfg: TrainConfig) -> None:
             optimizer.step()
 
         if epoch % cfg.print_epochs == 0:
-            print(f"    Avg. Loss in Epoch: {torch.mean(torch.cat(avg_loss_in_epoch)).item()}")
+            rank_print(f"    Avg. Loss in Epoch: {torch.mean(torch.cat(avg_loss_in_epoch)).item()}", rank=rank)
 
         # validation loop
         if epoch % cfg.val_epochs == 0:
@@ -231,16 +314,16 @@ def train(cfg: TrainConfig) -> None:
             with torch.no_grad():
                 val_loss = []
                 for example in val_dataloader:
-                    images = example["images"].to(cfg.device).to(torch.float32)
-                    cube_pose_SE3 = pp.SE3(example["cube_pose"].to(cfg.device).to(torch.float32))
+                    images = example["images"].to(device)
+                    cube_pose_SE3 = pp.SE3(example["cube_pose"].to(device))
                     cube_pose_pred_se3 = model(images)
                     losses = loss_fn(cube_pose_pred_se3, cube_pose_SE3)
                     val_loss.append(losses)
 
                 val_loss = torch.mean(torch.cat(val_loss)).item()
-                if cfg.wandb_log:
+                if cfg.wandb_log and (not cfg.multigpu or rank == 0):
                     wandb.log({"val_loss": val_loss})
-                print(f"    Validation loss: {val_loss}")
+                rank_print(f"    Validation loss: {val_loss}", rank=rank)
 
                 # update learning rate based on val loss
                 scheduler.step(val_loss)
@@ -252,9 +335,25 @@ def train(cfg: TrainConfig) -> None:
                 # Make outputs folder if not there.
                 save_dir = Path(ROOT + "/outputs/models")
             os.makedirs(save_dir, exist_ok=True)
-            torch.save(model.state_dict(), save_dir / f"{wandb_id}.pth")
+            if rank == 0:  # works for both single and multigpu
+                torch.save(model.state_dict(), save_dir / f"{wandb_id}.pth")
+
+    if cfg.multigpu:
+        dist.destroy_process_group()
+
+
+def _train_multigpu(rank: int, cfg: TrainConfig) -> None:
+    """Trivial wrapper for train.
+
+    Defined this way because rank must be the first argument in the function signature for mp.spawn.
+    This function must also be defined at a module top level to allow pickling.
+    """
+    train(cfg, rank=rank)
 
 
 if __name__ == "__main__":
     cfg = tyro.cli(TrainConfig)
-    train(cfg)
+    if cfg.multigpu:
+        mp.spawn(_train_multigpu, args=(cfg,), nprocs=cfg.num_gpus, join=True)
+    else:
+        train(cfg, rank=0)
