@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchvision.models as models
+import timm
 
 # from robomimic.models.obs_core import VisualCore
 # from robomimic.models.base_nets import ResNet18Conv, SpatialSoftmax
@@ -40,7 +41,9 @@ class NCameraCNN(nn.Module):
             cfg: The configuration for the model. If None, the default configuration is used.
         """
         super().__init__()
-        self.resnet = models.resnet34(weights="DEFAULT")
+        # self.resnet = models.resnet34(weights="DEFAULT")
+        # Load the DETR model
+        self.model = timm.create_model("detr_resnet50", pretrained=True)
 
         if cfg is None:
             cfg = NCameraCNNConfig()
@@ -49,17 +52,13 @@ class NCameraCNN(nn.Module):
 
         self.n_cams = cfg.n_cams
 
-        # adjust the first convolutional layer to match the correct number of input channels
-
-        # replace the average pooling and the final fully connected layer
-        self.resnet.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, self.resnet_output_dim)
+        self.model.head = nn.Linear(self.model.head.in_features, self.resnet_output_dim)
 
         self.output_mlp = nn.Sequential(
-            nn.Linear(self.n_cams * self.resnet_output_dim, 128),
-            nn.GELU(),
+            nn.Linear(self.n_cams * cfg.resnet_output_dim, 128),
+            nn.ReLU(),
             nn.Linear(128, 128),
-            nn.GELU(),
+            nn.ReLU(),
             nn.Linear(128, 6),
         )
 
@@ -81,11 +80,11 @@ class NCameraCNN(nn.Module):
         x = x.reshape(-1, 3, *(x.shape[-2:]))  # (B * n_cams, 3, H, W)
 
         # Forward pass through the resnet.
-        x = self.resnet(x)
+        x = self.model(x)
 
         # Reshape the output to (B, n_cams * resnet_output_dim).
         x = x.reshape(B, self.n_cams * self.resnet_output_dim)
-        x = nn.GELU()(x)
+        x = nn.ReLU()(x)
 
         return self.output_mlp(x)
 
