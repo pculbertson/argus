@@ -99,6 +99,7 @@ def validate(cfg: ValConfig) -> None:
 
     model = NCameraCNN(model_config)
     model.load_state_dict(torch.load(model_path))
+    model = torch.compile(model, mode="reduce-overhead")
     model.to(device)
     model.eval()
 
@@ -113,20 +114,21 @@ def validate(cfg: ValConfig) -> None:
     # for each data example, plot the true and predicted cube pose
     losses = []
     for i, example in tqdm(enumerate(dataloader), total=len(dataloader)):
-        # forward pass
-        images = example["images"].to(device).to(torch.float32)
-        if dataset_config.center_crop:
-            images = kornia.geometry.transform.center_crop(
-                images, (dataset_config.center_crop[0], dataset_config.center_crop[1])
-            )
-        cube_pose_true_SE3 = example["cube_pose"].to(device).to(torch.float32)
-        H, W = images.shape[-2], images.shape[-1]
-        _images = augmentation(images.reshape(-1, 3, H, W))
-        images = _images.reshape(-1, model_config.n_cams * 3, H, W)
+        with torch.no_grad():
+            # forward pass
+            images = example["images"].to(device)
+            if dataset_config.center_crop:
+                images = kornia.geometry.transform.center_crop(
+                    images, (dataset_config.center_crop[0], dataset_config.center_crop[1])
+                )
+            cube_pose_true_SE3 = example["cube_pose"].to(device)
+            H, W = images.shape[-2], images.shape[-1]
+            _images = augmentation(images.reshape(-1, 3, H, W))
+            images = _images.reshape(-1, model_config.n_cams * 3, H, W)
 
-        cube_pose_pred_se3 = model(images)
-        loss = torch.mean(geometric_loss_fn(cube_pose_pred_se3, cube_pose_true_SE3))
-        losses.append(loss.item())
+            cube_pose_pred_se3 = model(images)
+            loss = torch.mean(geometric_loss_fn(cube_pose_pred_se3, cube_pose_true_SE3))
+            losses.append(loss.item())
 
         # plot the true and predicted cube poses
         cube_pose_pred_SE3 = pp.se3(cube_pose_pred_se3).Exp()

@@ -47,6 +47,7 @@ class TrainConfig:
         random_seed: The random seed.
         multigpu: Whether to use multiple GPUs.
         amp: Whether to use automatic mixed precision.
+        no_profiling: Whether to turn off profiling APIs.
         val_epochs: The number of epochs between validation.
         print_epochs: The number of epochs between printing.
         save_epochs: The number of epochs between saving.
@@ -72,6 +73,7 @@ class TrainConfig:
     # speed optimizations
     multigpu: bool = False
     amp: bool = False
+    no_profiling: bool = False
 
     # validation, printing, and saving
     val_epochs: int = 1
@@ -199,34 +201,13 @@ def initialize_training(
         model = DDP(NCameraCNN(cfg.model_config).to(device), device_ids=[rank])
     else:
         model = NCameraCNN(cfg.model_config).to(device)
+
+    # [DEBUG]
+    # model.to(memory_format=torch.channels_last)  # this is a test to see if it speeds up the model
+
     if cfg.compile_model:
         model = torch.compile(model, mode="reduce-overhead")  # compiled model
-        print("Compiling the model...")
-        model(
-            torch.zeros(
-                (cfg.batch_size, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W),
-                device=device,
-            )
-        )  # warming up the optimized model by running dummy inputs
-
-        # doing the same with the leftover size of the train/val datasets
-        train_leftover = len(train_dataset) % cfg.batch_size
-        val_leftover = len(val_dataset) % cfg.batch_size
-        if train_leftover != 0:
-            model(
-                torch.zeros(
-                    (train_leftover, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W),
-                    device=device,
-                )
-            )
-        if val_leftover != 0:
-            model(
-                torch.zeros(
-                    (val_leftover, cfg.model_config.n_cams * 3, cfg.dataset_config.H, cfg.dataset_config.W),
-                    device=device,
-                )
-            )
-        print("Model compiled!")
+        print("Using compiled model - first epoch will be slow!")
 
     # optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate)
@@ -240,6 +221,13 @@ def initialize_training(
     wandb_id = generate_id()
     if cfg.wandb_log and rank == 0:
         wandb.init(project=cfg.wandb_project, config=cfg, id=wandb_id, resume="allow")
+
+    # turn off profiling APIs
+    if cfg.no_profiling:
+        torch.autograd.profiler.record_function(enabled=False)
+        torch.autograd.profiler.profile(enabled=False)
+        torch.autograd.profiler.emit_nvtx(enabled=False)
+        torch.autograd.set_detect_anomaly(mode=False)
 
     return (
         train_dataloader,
@@ -300,6 +288,7 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
             ):
                 # loading data
                 images = example["images"].to(device)  # (B, 6, H, W)
+                # images = example["images"].to(device, memory_format=torch.channels_last).contiguous()  # (B, 6, H, W)
                 cube_pose_SE3 = pp.SE3(example["cube_pose"].to(device))  # quats are (x, y, z, w)
 
                 # forward pass
@@ -313,11 +302,14 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
 
             # backward pass
             optimizer.zero_grad()
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
+            # scaler.scale(loss).backward()
+            # scaler.unscale_(optimizer)
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.max_grad_norm)
+            # scaler.step(optimizer)
+            # scaler.update()
+            loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.max_grad_norm)
-            scaler.step(optimizer)
-            scaler.update()
+            optimizer.step()
             avg_loss_in_epoch.append(losses)
 
         if epoch % cfg.print_epochs == 0:
@@ -330,6 +322,7 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
                 val_loss = []
                 for example in val_dataloader:
                     images = example["images"].to(device)
+                    # images = example["images"].to(device, memory_format=torch.channels_last).contiguous()
                     cube_pose_SE3 = pp.SE3(example["cube_pose"].to(device))
                     with torch.autocast(
                         device_type="cuda" if device.type == "cuda" else "cpu", dtype=torch.float16, enabled=cfg.amp
@@ -355,7 +348,9 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
                 save_dir = Path(ROOT + "/outputs/models")
             os.makedirs(save_dir, exist_ok=True)
             if rank == 0:  # works for both single and multigpu
-                torch.save(model.state_dict(), save_dir / f"{wandb_id}.pth")
+                torch.save(
+                    getattr(model, "_orig_mod", model).state_dict(), save_dir / f"{wandb_id}.pth"
+                )  # see: github.com/pytorch/pytorch/issues/101107#issuecomment-1869839379
 
     if cfg.multigpu:
         dist.destroy_process_group()
