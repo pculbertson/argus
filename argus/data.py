@@ -74,6 +74,9 @@ class Augmentation(torch.nn.Module):
         if cfg.blur:
             self.transforms.append(kornia.augmentation.RandomGaussianBlur((5, 5), (3.0, 8.0), p=0.5))
 
+        # No matter what, add a step to normalize to ImageNet stats.
+        self.transforms.append(kornia.augmentation.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
+
         self.transform_op = kornia.augmentation.AugmentationSequential(*self.transforms, data_keys=["image"])
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
