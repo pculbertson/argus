@@ -20,10 +20,10 @@ class AugmentationConfig:
     """Configuration for data augmentation."""
 
     # color jiggle
-    brightness: Union[float, tuple[float, float]] = 0.4
-    contrast: Union[float, tuple[float, float]] = (0.3, 1.2)
-    saturation: Union[float, tuple[float, float]] = (0.3, 1.2)
-    hue: Union[float, tuple[float, float]] = 0.1
+    brightness: Union[float, tuple[float, float]] = (0.95, 1.0)
+    contrast: Union[float, tuple[float, float]] = (0.75, 1.2)
+    saturation: Union[float, tuple[float, float]] = (0.5, 1.2)
+    hue: Union[float, tuple[float, float]] = (-0.1, 0.1)
 
     # flags
     color_jiggle: bool = True
@@ -209,7 +209,7 @@ if __name__ == "__main__":
     import cv2
     import tyro
 
-    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data_small")
+    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data_large")
     augmentation_cfg = tyro.cli(AugmentationConfig)
     train_dataset = CameraCubePoseDataset(dataset_cfg, train=True)
 
@@ -218,7 +218,8 @@ if __name__ == "__main__":
     # Read and augment first image, and display with opencv.
     for ii in range(len(train_dataset)):
         imgs = train_dataset[ii]["images"]
-        imgs = augmentation(imgs.reshape(-1, 3, train_dataset.H, train_dataset.W)).numpy()[0]
+        H, W = imgs.shape[-2:]
+        imgs = augmentation(imgs.reshape(-1, 3, H, W)).numpy()[0]
         cv2.imshow("image", imgs.transpose(1, 2, 0))
 
         cv2.waitKey(0)
