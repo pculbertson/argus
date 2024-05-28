@@ -81,10 +81,12 @@ class Augmentation(torch.nn.Module):
             self.transforms.append(kornia.augmentation.RandomMotionBlur(3, 35.0, 0.5, p=0.7))
 
         if cfg.plasma_shadow:
-            self.transforms.append(kornia.augmentation.RandomPlasmaShadow(roughness=(0.1, 0.7), p=0.7))
+            self.transforms.append(
+                kornia.augmentation.RandomPlasmaShadow(roughness=(0.1, 0.7), shade_quantity=(0.0, 0.4), p=0.7)
+            )
 
         if cfg.salt_and_pepper:
-            self.transforms.append(kornia.augmentation.RandomSaltAndPepper(p=0.7))
+            self.transforms.append(kornia.augmentation.RandomSaltAndPepperNoise(p=0.7))
 
         self.transform_op = kornia.augmentation.AugmentationSequential(*self.transforms, data_keys=["image"])
 
