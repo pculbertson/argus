@@ -20,9 +20,9 @@ class AugmentationConfig:
     """Configuration for data augmentation."""
 
     # color jiggle
-    brightness: Union[float, tuple[float, float]] = (0.95, 1.0)
-    contrast: Union[float, tuple[float, float]] = (0.75, 1.2)
-    saturation: Union[float, tuple[float, float]] = (0.5, 1.2)
+    brightness: Union[float, tuple[float, float]] = (0.8, 1.0)
+    contrast: Union[float, tuple[float, float]] = (0.5, 1.2)
+    saturation: Union[float, tuple[float, float]] = (0.25, 1.2)
     hue: Union[float, tuple[float, float]] = (-0.1, 0.1)
 
     # flags
@@ -71,6 +71,7 @@ class Augmentation(torch.nn.Module):
                     saturation=cfg.saturation,
                     hue=cfg.hue,
                     same_on_batch=True,
+                    p=1.,
                 )
             )
 
@@ -82,7 +83,7 @@ class Augmentation(torch.nn.Module):
 
         if cfg.plasma_shadow:
             self.transforms.append(
-                kornia.augmentation.RandomPlasmaShadow(roughness=(0.1, 0.7), shade_quantity=(0.0, 0.4), p=0.7)
+                kornia.augmentation.RandomPlasmaShadow(roughness=(0.1, 0.4), shade_intensity=(-0.6, 0.0), shade_quantity=(0.0, 0.5), p=1.)
             )
 
         if cfg.salt_and_pepper:
