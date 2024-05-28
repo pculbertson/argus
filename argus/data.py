@@ -30,6 +30,9 @@ class AugmentationConfig:
     planckian_jitter: bool = True
     random_erasing: bool = False
     blur: bool = True
+    motion_blur: bool = True
+    plasma_shadow: bool = True
+    salt_and_pepper: bool = True
 
 
 class Augmentation(torch.nn.Module):
@@ -74,8 +77,14 @@ class Augmentation(torch.nn.Module):
         if cfg.blur:
             self.transforms.append(kornia.augmentation.RandomGaussianBlur((5, 5), (3.0, 8.0), p=0.5))
 
-        # No matter what, add a step to normalize to ImageNet stats.
-        self.transforms.append(kornia.augmentation.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
+        if cfg.motion_blur:
+            self.transforms.append(kornia.augmentation.RandomMotionBlur(3, 35.0, 0.5, p=0.7))
+
+        if cfg.plasma_shadow:
+            self.transforms.append(kornia.augmentation.RandomPlasmaShadow(roughness=(0.1, 0.7), p=0.7))
+
+        if cfg.salt_and_pepper:
+            self.transforms.append(kornia.augmentation.RandomSaltAndPepper(p=0.7))
 
         self.transform_op = kornia.augmentation.AugmentationSequential(*self.transforms, data_keys=["image"])
 
