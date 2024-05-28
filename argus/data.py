@@ -12,7 +12,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 from argus import ROOT
-from argus.utils import get_tree_string, xyzwxyz_to_xyzxyzw_SE3
+from argus.utils import draw_spaghetti, get_tree_string, xyzwxyz_to_xyzxyzw_SE3
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,9 @@ class AugmentationConfig:
     contrast: Union[float, tuple[float, float]] = (0.5, 1.2)
     saturation: Union[float, tuple[float, float]] = (0.25, 1.2)
     hue: Union[float, tuple[float, float]] = (-0.1, 0.1)
+
+    # spaghetti
+    num_spaghetti: int = 10
 
     # flags
     color_jiggle: bool = True
@@ -71,7 +74,7 @@ class Augmentation(torch.nn.Module):
                     saturation=cfg.saturation,
                     hue=cfg.hue,
                     same_on_batch=True,
-                    p=1.,
+                    p=1.0,
                 )
             )
 
@@ -83,7 +86,9 @@ class Augmentation(torch.nn.Module):
 
         if cfg.plasma_shadow:
             self.transforms.append(
-                kornia.augmentation.RandomPlasmaShadow(roughness=(0.1, 0.4), shade_intensity=(-0.6, 0.0), shade_quantity=(0.0, 0.5), p=1.)
+                kornia.augmentation.RandomPlasmaShadow(
+                    roughness=(0.1, 0.4), shade_intensity=(-0.6, 0.0), shade_quantity=(0.0, 0.5), p=1.0
+                )
             )
 
         if cfg.salt_and_pepper:
@@ -201,6 +206,12 @@ class CameraCubePoseDataset(Dataset):
         img_stem = self.img_stems[idx]
         img_a = Image.open(f"{self.dataset_path}/{img_stem}_a.png")  # (H, W, 3)
         img_b = Image.open(f"{self.dataset_path}/{img_stem}_b.png")  # (H, W, 3)
+
+        # Draw random arcs if self.augmentation.spaghetti is True
+        if self.augmentation is not None and self.augmentation.cfg.num_spaghetti > 0:
+            img_a = draw_spaghetti(img_a, self.augmentation.cfg.num_spaghetti)
+            img_b = draw_spaghetti(img_b, self.augmentation.cfg.num_spaghetti)
+
         _images = np.concatenate([np.array(img_a), np.array(img_b)], axis=-1).transpose(2, 0, 1)  # (n_cams * 3, H, W)
         images = torch.tensor(_images) / 255.0  # (n_cams * 3, H, W)
         if self.center_crop and images.shape[-2:] != self.center_crop:  # crop if not already cropped and requested
