@@ -35,7 +35,7 @@ class AugmentationConfig:
     blur: bool = True
     motion_blur: bool = True
     plasma_shadow: bool = True
-    salt_and_pepper: bool = True
+    salt_and_pepper: bool = False
 
 
 class Augmentation(torch.nn.Module):
@@ -193,6 +193,8 @@ class CameraCubePoseDataset(Dataset):
         else:
             self.augmentation = None
 
+        self.cfg_aug = cfg_aug
+
         # assigning useful attributes
         self.dataset_path = dataset_path
         self.center_crop = cfg_dataset.center_crop
@@ -208,9 +210,9 @@ class CameraCubePoseDataset(Dataset):
         img_b = Image.open(f"{self.dataset_path}/{img_stem}_b.png")  # (H, W, 3)
 
         # Draw random arcs if self.augmentation.spaghetti is True
-        if self.augmentation is not None and self.augmentation.cfg.num_spaghetti > 0:
-            img_a = draw_spaghetti(img_a, self.augmentation.cfg.num_spaghetti)
-            img_b = draw_spaghetti(img_b, self.augmentation.cfg.num_spaghetti)
+        if self.cfg_aug.num_spaghetti > 0:
+            img_a = draw_spaghetti(img_a, self.cfg_aug.num_spaghetti)
+            img_b = draw_spaghetti(img_b, self.cfg_aug.num_spaghetti)
 
         _images = np.concatenate([np.array(img_a), np.array(img_b)], axis=-1).transpose(2, 0, 1)  # (n_cams * 3, H, W)
         images = torch.tensor(_images) / 255.0  # (n_cams * 3, H, W)
@@ -234,16 +236,14 @@ if __name__ == "__main__":
 
     dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data_large")
     augmentation_cfg = tyro.cli(AugmentationConfig)
-    train_dataset = CameraCubePoseDataset(dataset_cfg, train=True)
-
-    augmentation = Augmentation(augmentation_cfg, train=True)
+    train_dataset = CameraCubePoseDataset(dataset_cfg, cfg_aug=augmentation_cfg, train=True)
 
     # Read and augment first image, and display with opencv.
     for ii in range(len(train_dataset)):
         imgs = train_dataset[ii]["images"]
         H, W = imgs.shape[-2:]
-        imgs = augmentation(imgs.reshape(-1, 3, H, W)).numpy()[0]
-        cv2.imshow("image", imgs.transpose(1, 2, 0))
+        img = imgs.reshape((train_dataset.n_cams, 3, H, W))[0]
+        cv2.imshow("image", img.permute(1, 2, 0).numpy())
 
         cv2.waitKey(0)
 

@@ -249,7 +249,7 @@ def get_tree_string(path: str, extension: str) -> str:
     return BLUE + path + "\n" + _get_tree_string(path, extension) + RESET
 
 
-def draw_spaghetti(img: Image, n_arcs: int = 10) -> Image:
+def draw_spaghetti(img: Image, n_arcs: int = 10, width_range=(1.0, 5.0)) -> Image:
     """Draws random spaghetti arcs on the input image.
 
     Args:
@@ -263,11 +263,13 @@ def draw_spaghetti(img: Image, n_arcs: int = 10) -> Image:
     for _ in range(n_arcs):
         # Randomly sample the arc parameters
         x0, y0 = np.random.randint(0, img.width), np.random.randint(0, img.height)
-        x1, y1 = np.random.randint(0, img.width), np.random.randint(0, img.height)
+        x1, y1 = np.random.randint(x0, img.width), np.random.randint(y0, img.height)
         start_angle, end_angle = np.random.randint(0, 360), np.random.randint(0, 360)
-        color = np.random.randint(0, 256, 3).tolist()
+        color = (0, 0, 0)
+        width = np.random.uniform(*width_range)
 
         # Draw the arc
-        ImageDraw.Draw(img).arc((x0, y0, x1, y1), start_angle, end_angle, fill=tuple(color))
+        d = ImageDraw.Draw(img)
+        d.arc((x0, y0, x1, y1), start_angle, end_angle, fill=tuple(color), width=int(width))
 
     return img
