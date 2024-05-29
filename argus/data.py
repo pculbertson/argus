@@ -197,7 +197,7 @@ class CameraCubePoseDataset(Dataset):
             images = self.augmentation(images.reshape((self.n_cams, 3, H, W))).reshape(-1, H, W)
         return {
             "images": images.to(torch.float32),
-            "cube_pose": self.cube_poses[idx],
+            "cube_pose": self.cube_poses[idx].to(torch.float32),
         }
 
 

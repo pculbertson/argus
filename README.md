@@ -49,16 +49,25 @@ This will save out an `hdf5` file used to train the estimator to the directory `
 
 ### Training and Validation
 
-To train the estimator run
+To train the estimator with default settings run (for your choice of small, medium, or large dataset)
 ```
-python argus/train.py
+python argus/train.py --dataset-config.dataset-path outputs/data/cube_unity_data_<small,medium,large>
 ```
-This will train an estimator and save out a model to `/REPO_ROOT/outputs/models/<wandb_id>.pth`. To run some visual evaluations as sanity checks, run
+This will train an estimator and save out a model to `/REPO_ROOT/outputs/models/<wandb_id>.pth`. Multi-GPU training is also implemented via `torch.DistributedDataParallel`. To use this, simply run
 ```
-python argus/validate.py --model-path /home/albert/research/argus/outputs/models/f2bzobdo.pth
+python argus/train.py --dataset-config.dataset-path outputs/data/cube_unity_data_<small,medium,large> --multigpu
 ```
-This will save out images showing qualitative performance on the validation set to the directory `/REPO_ROOT/outputs/validation_visuals/<wandb_id>`.
 
+To run some visual evaluations as sanity checks, run
+```
+python argus/validate.py --model-path /home/albert/research/argus/outputs/models/<checkpoint>.pth
+```
+This will save out images showing qualitative performance on the validation set to the directory `/REPO_ROOT/outputs/validation_visuals/<checkpoint>`.
+
+To run visual evaluations on real-world data, run
+```
+python argus/validate_real.py --model-path /home/albert/research/argus/outputs/models/<checkpoint>.pth --dataset-config.dataset-path outputs/data/cube_unity_data_<small,medium,large>
+```
 
 ## Testing
 
