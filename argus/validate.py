@@ -102,12 +102,12 @@ def validate(cfg: ValConfig) -> None:
     model.to(device)
     model.eval()
 
-    # loading augmentation
+    # # loading augmentation
     augmentation = Augmentation(aug_cfg, train=use_train)
     augmentation.to(device)
 
     # dataloader
-    dataset = CameraCubePoseDataset(dataset_config, train=use_train)
+    dataset = CameraCubePoseDataset(dataset_config, cfg_aug=aug_cfg, train=use_train)
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
 
     # for each data example, plot the true and predicted cube pose
