@@ -12,7 +12,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 from argus import ROOT
-from argus.utils import get_tree_string, xyzwxyz_to_xyzxyzw_SE3
+from argus.utils import draw_spaghetti, get_tree_string, xyzwxyz_to_xyzxyzw_SE3
 
 
 @dataclass(frozen=True)
@@ -20,16 +20,22 @@ class AugmentationConfig:
     """Configuration for data augmentation."""
 
     # color jiggle
-    brightness: Union[float, tuple[float, float]] = 0.4
-    contrast: Union[float, tuple[float, float]] = (0.3, 1.2)
-    saturation: Union[float, tuple[float, float]] = (0.3, 1.2)
-    hue: Union[float, tuple[float, float]] = 0.1
+    brightness: Union[float, tuple[float, float]] = (0.8, 1.0)
+    contrast: Union[float, tuple[float, float]] = (0.5, 1.2)
+    saturation: Union[float, tuple[float, float]] = (0.25, 1.2)
+    hue: Union[float, tuple[float, float]] = (-0.1, 0.1)
+
+    # spaghetti
+    num_spaghetti: int = 10
 
     # flags
     color_jiggle: bool = True
     planckian_jitter: bool = True
     random_erasing: bool = False
     blur: bool = True
+    motion_blur: bool = True
+    plasma_shadow: bool = True
+    salt_and_pepper: bool = False
 
 
 class Augmentation(torch.nn.Module):
@@ -68,11 +74,25 @@ class Augmentation(torch.nn.Module):
                     saturation=cfg.saturation,
                     hue=cfg.hue,
                     same_on_batch=True,
+                    p=1.0,
                 )
             )
 
         if cfg.blur:
             self.transforms.append(kornia.augmentation.RandomGaussianBlur((5, 5), (3.0, 8.0), p=0.5))
+
+        if cfg.motion_blur:
+            self.transforms.append(kornia.augmentation.RandomMotionBlur(3, 35.0, 0.5, p=0.7))
+
+        if cfg.plasma_shadow:
+            self.transforms.append(
+                kornia.augmentation.RandomPlasmaShadow(
+                    roughness=(0.1, 0.4), shade_intensity=(-0.6, 0.0), shade_quantity=(0.0, 0.5), p=1.0
+                )
+            )
+
+        if cfg.salt_and_pepper:
+            self.transforms.append(kornia.augmentation.RandomSaltAndPepperNoise(p=0.7))
 
         self.transform_op = kornia.augmentation.AugmentationSequential(*self.transforms, data_keys=["image"])
 
@@ -173,6 +193,8 @@ class CameraCubePoseDataset(Dataset):
         else:
             self.augmentation = None
 
+        self.cfg_aug = cfg_aug
+
         # assigning useful attributes
         self.dataset_path = dataset_path
         self.center_crop = cfg_dataset.center_crop
@@ -186,6 +208,12 @@ class CameraCubePoseDataset(Dataset):
         img_stem = self.img_stems[idx]
         img_a = Image.open(f"{self.dataset_path}/{img_stem}_a.png")  # (H, W, 3)
         img_b = Image.open(f"{self.dataset_path}/{img_stem}_b.png")  # (H, W, 3)
+
+        # Draw random arcs if self.augmentation.spaghetti is True
+        if self.cfg_aug.num_spaghetti > 0:
+            img_a = draw_spaghetti(img_a, self.cfg_aug.num_spaghetti)
+            img_b = draw_spaghetti(img_b, self.cfg_aug.num_spaghetti)
+
         _images = np.concatenate([np.array(img_a), np.array(img_b)], axis=-1).transpose(2, 0, 1)  # (n_cams * 3, H, W)
         images = torch.tensor(_images) / 255.0  # (n_cams * 3, H, W)
         if self.center_crop and images.shape[-2:] != self.center_crop:  # crop if not already cropped and requested
@@ -206,17 +234,16 @@ if __name__ == "__main__":
     import cv2
     import tyro
 
-    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data_small")
+    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data_large")
     augmentation_cfg = tyro.cli(AugmentationConfig)
-    train_dataset = CameraCubePoseDataset(dataset_cfg, train=True)
-
-    augmentation = Augmentation(augmentation_cfg, train=True)
+    train_dataset = CameraCubePoseDataset(dataset_cfg, cfg_aug=augmentation_cfg, train=True)
 
     # Read and augment first image, and display with opencv.
     for ii in range(len(train_dataset)):
         imgs = train_dataset[ii]["images"]
-        imgs = augmentation(imgs.reshape(-1, 3, train_dataset.H, train_dataset.W)).numpy()[0]
-        cv2.imshow("image", imgs.transpose(1, 2, 0))
+        H, W = imgs.shape[-2:]
+        img = imgs.reshape((train_dataset.n_cams, 3, H, W))[0]
+        cv2.imshow("image", img.permute(1, 2, 0).numpy())
 
         cv2.waitKey(0)
 

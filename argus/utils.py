@@ -6,6 +6,7 @@ import numpy as np
 import pypose as pp
 import torch
 from scipy.spatial.transform import Rotation as R
+from PIL import Image, ImageDraw
 
 # ###################### #
 # CONVENTION CONVERSIONS #
@@ -246,3 +247,29 @@ def get_tree_string(path: str, extension: str) -> str:
     BLUE = "\033[94m"
     RESET = "\033[0m"
     return BLUE + path + "\n" + _get_tree_string(path, extension) + RESET
+
+
+def draw_spaghetti(img: Image, n_arcs: int = 10, width_range=(1.0, 5.0)) -> Image:
+    """Draws random spaghetti arcs on the input image.
+
+    Args:
+        img: The image to draw the spaghetti on.
+        n_arcs: The number of arcs to draw.
+
+    Returns:
+        img: The image with the spaghetti arcs drawn on it.
+    """
+    # Draw n_arcs random spaghetti arcs
+    for _ in range(n_arcs):
+        # Randomly sample the arc parameters
+        x0, y0 = np.random.randint(0, img.width), np.random.randint(0, img.height)
+        x1, y1 = np.random.randint(x0, img.width), np.random.randint(y0, img.height)
+        start_angle, end_angle = np.random.randint(0, 360), np.random.randint(0, 360)
+        color = (0, 0, 0)
+        width = np.random.uniform(*width_range)
+
+        # Draw the arc
+        d = ImageDraw.Draw(img)
+        d.arc((x0, y0, x1, y1), start_angle, end_angle, fill=tuple(color), width=int(width))
+
+    return img
