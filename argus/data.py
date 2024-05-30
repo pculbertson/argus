@@ -162,7 +162,7 @@ class CameraCubePoseDataset(Dataset):
 
             # grabbing the data
             _cube_poses = torch.from_numpy(dataset["cube_poses"][()])  # original quat order is (w, x, y, z)
-            self.cube_poses = pp.SE3(xyzwxyz_to_xyzxyzw_SE3(_cube_poses))  # pp quat order is (x, y, z, w)
+            self.cube_poses = xyzwxyz_to_xyzxyzw_SE3(_cube_poses).numpy()  # pp quat order is (x, y, z, w)
             self.q_leap = torch.from_numpy(dataset["q_leap"][()])
             _img_stems = dataset["img_stems"][()]
             self.img_stems = [byte_string.decode("utf-8") for byte_string in _img_stems]
@@ -186,18 +186,32 @@ class CameraCubePoseDataset(Dataset):
         img_stem = self.img_stems[idx]
         img_a = Image.open(f"{self.dataset_path}/{img_stem}_a.png")  # (H, W, 3)
         img_b = Image.open(f"{self.dataset_path}/{img_stem}_b.png")  # (H, W, 3)
-        _images = np.concatenate([np.array(img_a), np.array(img_b)], axis=-1).transpose(2, 0, 1)  # (n_cams * 3, H, W)
-        images = torch.tensor(_images) / 255.0  # (n_cams * 3, H, W)
-        if self.center_crop and images.shape[-2:] != self.center_crop:  # crop if not already cropped and requested
-            images = kornia.geometry.transform.center_crop(
-                images.unsqueeze(0), (self.center_crop[0], self.center_crop[1])
-            ).squeeze(0)
+        images = (
+            np.concatenate([np.array(img_a), np.array(img_b)], axis=-1).transpose(2, 0, 1) / 255.0
+        )  # (n_cams * 3, H, W)
+
+        # GPU ops
+        ###############################################################################################################
         if self.augmentation is not None:
+            images = torch.tensor(images)  # (n_cams * 3, H, W)
+            if self.center_crop and images.shape[-2:] != self.center_crop:  # crop if not already cropped and requested
+                images = kornia.geometry.transform.center_crop(
+                    images.unsqueeze(0), (self.center_crop[0], self.center_crop[1])
+                ).squeeze(0)
             H, W = images.shape[-2:]
             images = self.augmentation(images.reshape((self.n_cams, 3, H, W))).reshape(-1, H, W)
+        ###############################################################################################################
+
+        # TODO(ahl): CPU ops
+        else:
+            # center crop the images using PIL
+            if self.center_crop and images.shape[-2:] != self.center_crop:
+                images = images[:, (self.center_crop[0] - 1) // 2 : -(self.center_crop[0] // 2), :]
+                images = images[:, :, (self.center_crop[1] - 1) // 2 : -(self.center_crop[1] // 2)]
+
         return {
-            "images": images.to(torch.float32),
-            "cube_pose": self.cube_poses[idx].to(torch.float32),
+            "images": images,
+            "cube_pose": self.cube_poses[idx],
         }
 
 

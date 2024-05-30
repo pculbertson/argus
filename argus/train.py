@@ -52,6 +52,9 @@ class TrainConfig:
         print_epochs: The number of epochs between printing.
         save_epochs: The number of epochs between saving.
         save_dir: The directory to save the model.
+        augmentation_config: The configuration for data augmentation.
+        use_augmentation: Whether to use data augmentation.
+        use_aug_dataloader: Whether to do augmentation in the dataloader or in the training loop.
         wandb_project: The wandb project name.
         wandb_log: Whether to log to wandb.
     """
@@ -84,6 +87,7 @@ class TrainConfig:
     # data augmentation
     augmentation_config: AugmentationConfig = AugmentationConfig()
     use_augmentation: bool = True
+    use_aug_dataloader: bool = False
 
     # wandb
     wandb_project: str = "argus-estimator"
@@ -121,6 +125,27 @@ def geometric_loss_fn(pred: torch.Tensor, target: pp.LieTensor) -> torch.Tensor:
     return torch.sum((pp.se3(pred).Exp() @ target.Inv()).Log() ** 2, axis=-1)
 
 
+# TODO(ahl): bad, doesn't put on right device
+def collate_fn_torch(batch):
+    """TODO(ahl): delete this."""
+    images = [example["images"] for example in batch]
+    cube_poses = [example["cube_pose"] for example in batch]
+    return {
+        "images": torch.stack(torch.tensor(images)).to(torch.float32),
+        "cube_pose": pp.SE3(torch.stack(torch.tensor(cube_poses))).to(torch.float32),
+    }
+
+
+def collate_fn_numpy(batch):
+    """TODO(ahl): delete this."""
+    images = [example["images"] for example in batch]
+    cube_poses = [example["cube_pose"] for example in batch]
+    return {
+        "images": np.stack(images),
+        "cube_pose": np.stack(cube_poses),
+    }
+
+
 def initialize_training(
     cfg: TrainConfig, rank: int = 0
 ) -> tuple[DataLoader, DataLoader, NCameraCNN, Optimizer, ReduceLROnPlateau]:
@@ -150,8 +175,16 @@ def initialize_training(
     if cfg.amp:
         num_workers *= 2  # more workers for faster data loading with mixed precision
     try:
-        train_dataset = CameraCubePoseDataset(cfg.dataset_config, cfg_aug=cfg.augmentation_config, train=True)
-        val_dataset = CameraCubePoseDataset(cfg.dataset_config, cfg_aug=cfg.augmentation_config, train=False)
+        if cfg.use_aug_dataloader:
+            aug_cfg = cfg.augmentation_config if cfg.use_augmentation else None
+            augmentation = None
+
+        else:
+            aug_cfg = None
+            augmentation = Augmentation(cfg.augmentation_config, train=True).to(device)
+
+        train_dataset = CameraCubePoseDataset(cfg.dataset_config, cfg_aug=aug_cfg, train=True)
+        val_dataset = CameraCubePoseDataset(cfg.dataset_config, cfg_aug=aug_cfg, train=False)
 
         if cfg.multigpu:
             train_sampler = DistributedSampler(
@@ -181,7 +214,9 @@ def initialize_training(
             num_workers=num_workers,
             pin_memory=True,
             sampler=train_sampler,
-            multiprocessing_context="fork",  # this seems super important for speed when using multigpu!
+            # multiprocessing_context="fork",  # this seems super important for speed when using multigpu!
+            multiprocessing_context="spawn",
+            collate_fn=None,
         )
         val_dataloader = DataLoader(
             val_dataset,
@@ -190,7 +225,9 @@ def initialize_training(
             num_workers=num_workers,
             pin_memory=True,
             sampler=val_sampler,
-            multiprocessing_context="fork",  # this seems super important for speed when using multigpu!
+            # multiprocessing_context="fork",  # this seems super important for speed when using multigpu!
+            multiprocessing_context="spawn",
+            collate_fn=None,
         )
 
     except RuntimeError:
@@ -232,6 +269,7 @@ def initialize_training(
     return (
         train_dataloader,
         val_dataloader,
+        augmentation,
         model,
         optimizer,
         scheduler,
@@ -255,6 +293,7 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
     (
         train_dataloader,
         val_dataloader,
+        augmentation,
         model,
         optimizer,
         scheduler,
@@ -294,7 +333,11 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
                 # forward pass
                 cube_pose_pred_se3 = model(images)  # therefore, the predicted quats are (x, y, z, w)
 
-            losses = loss_fn(cube_pose_pred_se3.to(torch.float32), cube_pose_SE3)
+                if cfg.use_augmentation and not cfg.use_aug_dataloader:
+                    H, W = images.shape[-2:]
+                    images = augmentation(images.reshape((-1, 3, H, W))).reshape(-1, H, W)
+
+            losses = loss_fn(cube_pose_pred_se3, cube_pose_SE3)
             loss = torch.mean(losses)
 
             if cfg.wandb_log and (not cfg.multigpu or rank == 0):
@@ -329,7 +372,11 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
                     ):
                         cube_pose_pred_se3 = model(images)
 
-                    losses = loss_fn(cube_pose_pred_se3.to(torch.float32), cube_pose_SE3)
+                        if cfg.use_augmentation and not cfg.use_aug_dataloader:
+                            H, W = images.shape[-2:]
+                            images = augmentation(images.reshape((-1, 3, H, W))).reshape(-1, H, W)
+
+                    losses = loss_fn(cube_pose_pred_se3, cube_pose_SE3)
                     val_loss.append(losses)
 
                 val_loss = torch.mean(torch.cat(val_loss)).item()
