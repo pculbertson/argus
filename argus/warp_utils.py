@@ -5,6 +5,7 @@ from argus import ROOT
 from pathlib import Path
 from typing import Optional
 import numpy as np
+import torch
 
 wp.init()
 
@@ -13,7 +14,9 @@ def get_leap_model(mujoco_path: Optional[Path] = None):
     if mujoco_path is None:
         # Use default model path.
         leap_mjcf_model_path = Path(ROOT) / "mujoco" / "leap" / "leap_hand.xml"
-        cube_model_path = Path(ROOT) / "mujoco" / "common_assets" / "reorientation_cube.xml"
+        cube_model_path = (
+            Path(ROOT) / "mujoco" / "common_assets" / "reorientation_cube.xml"
+        )
     else:
         leap_mjcf_model_path = mujoco_path / "leap" / "leap_hand.xml"
         cube_model_path = mujoco_path / "common_assets" / "reorientation_cube.xml"
@@ -23,11 +26,20 @@ def get_leap_model(mujoco_path: Optional[Path] = None):
 
     # Parse cube MJCF into Warp.
     wp.sim.parse_mjcf(
-        str(cube_model_path), builder, xform=None, enable_self_collisions=False, collapse_fixed_joints=True
+        str(cube_model_path),
+        builder,
+        xform=None,
+        enable_self_collisions=False,
+        collapse_fixed_joints=True,
     )
 
     # Parse Leap MJCF into Warp.
-    wp.sim.parse_mjcf(str(leap_mjcf_model_path), builder, enable_self_collisions=False, collapse_fixed_joints=True)
+    wp.sim.parse_mjcf(
+        str(leap_mjcf_model_path),
+        builder,
+        enable_self_collisions=False,
+        collapse_fixed_joints=True,
+    )
 
     # Build the model.
     model = builder.finalize(requires_grad=True)
@@ -60,6 +72,62 @@ def get_cube_sdf(
 
     # Compute the SDF value.
     wp.atomic_add(sdf_val, 0, box_sdf(bounds, cube_point))
+
+
+def sdf_loss_factory(leap_model: wp.sim.Model):
+    dummy_qd = wp.zeros(leap_model.joint_dof_count, dtype=float, requires_grad=False)
+
+    class SDFLoss(torch.autograd.Function):
+        @staticmethod
+        def forward(ctx, q_warp):
+            tape = wp.Tape()
+            wp.synchronize()
+
+            # Cache input.
+            ctx.q_warp = wp.from_torch(q_warp, requires_grad=True)
+
+            ctx.state = leap_model.state()
+
+            # Create dummy velocity for FK.
+            ctx.qd_warp = dummy_qd
+
+            # Allocate output.
+            sdf_loss = wp.zeros(1, dtype=float, requires_grad=True)
+
+            # Run SDF loss.
+            with tape:
+                warp.sim.eval_fk(leap_model, ctx.q_warp, ctx.qd_warp, None, ctx.state)
+                warp.sim.collide(leap_model, ctx.state)
+                wp.launch(
+                    kernel=get_cube_sdf,
+                    dim=int(leap_model.rigid_contact_count.numpy()[0]),
+                    inputs=[
+                        sdf_loss,
+                        leap_model.rigid_contact_point0,
+                        leap_model.rigid_contact_shape0,
+                        leap_model.rigid_contact_point1,
+                        leap_model.shape_geo,
+                    ],
+                    device="cuda",
+                )
+
+            ctx.tape = tape
+            ctx.sdf_loss = sdf_loss
+            wp.synchronize()
+
+            return wp.to_torch(sdf_loss)
+
+        @staticmethod
+        def backward(ctx, grad_output):
+            wp.synchronize()
+            ctx.tape.backward(
+                loss=ctx.sdf_loss, grads={ctx.sdf_loss: wp.from_torch(grad_output)}
+            )
+            wp.synchronize()
+
+            return wp.to_torch(ctx.q_warp.grad)
+
+    return SDFLoss
 
 
 if __name__ == "__main__":
@@ -124,63 +192,67 @@ if __name__ == "__main__":
     example_qd0 = wp.from_numpy(example_qd, dtype=float)
     example_qd1 = wp.from_numpy(example_qd, dtype=float)
 
-    state0 = leap_model.state()
-    state1 = leap_model.state()
+    # state0 = leap_model.state()
+    # state1 = leap_model.state()
     # state0.joint_q = example_q0
     # state0.joint_qd = example_qd0
     # state1.joint_q = example_q1
     # state1.joint_qd = example_qd1
 
-    tape = wp.Tape()
-    with tape:
+    SDFLoss = sdf_loss_factory(leap_model)
 
-        with wp.ScopedTimer("fk_eval", synchronize=True):
-            warp.sim.eval_fk(leap_model, example_q0, example_qd0, None, state0)
+    q0_torch = torch.tensor(example_q0.numpy(), requires_grad=True, device="cuda")
+    sdf_loss = SDFLoss.apply(q0_torch).sum()
+    sdf_loss.backward()
 
-        # with wp.ScopedTimer("fk_eval", synchronize=True):
-        #     warp.sim.eval_fk(leap_model, example_q1, example_qd1, None, state1)
+    # tape = wp.Tape()
+    # with tape:
+    #     with wp.ScopedTimer("fk_eval", synchronize=True):
+    #         warp.sim.eval_fk(leap_model, example_q0, example_qd0, None, state0)
 
-        with wp.ScopedTimer("collision", synchronize=True):
-            wp.sim.collide(leap_model, state0)
+    #     # with wp.ScopedTimer("fk_eval", synchronize=True):
+    #     #     warp.sim.eval_fk(leap_model, example_q1, example_qd1, None, state1)
 
-        sdf_loss = wp.zeros(1, dtype=float, requires_grad=True)
+    #     with wp.ScopedTimer("collision", synchronize=True):
+    #         wp.sim.collide(leap_model, state0)
 
-        with wp.ScopedTimer("sdf_eval", synchronize=True):
+    #     sdf_loss = wp.zeros(1, dtype=float, requires_grad=True)
 
-            wp.launch(
-                kernel=get_cube_sdf,
-                dim=int(leap_model.rigid_contact_count.numpy()[0]),
-                inputs=[
-                    sdf_loss,
-                    leap_model.rigid_contact_point0,
-                    leap_model.rigid_contact_shape0,
-                    leap_model.rigid_contact_point1,
-                    leap_model.shape_geo,
-                ],
-                device="cuda",
-            )
+    #     with wp.ScopedTimer("sdf_eval", synchronize=True):
+    #         wp.launch(
+    #             kernel=get_cube_sdf,
+    #             dim=int(leap_model.rigid_contact_count.numpy()[0]),
+    #             inputs=[
+    #                 sdf_loss,
+    #                 leap_model.rigid_contact_point0,
+    #                 leap_model.rigid_contact_shape0,
+    #                 leap_model.rigid_contact_point1,
+    #                 leap_model.shape_geo,
+    #             ],
+    #             device="cuda",
+    #         )
 
-        with wp.ScopedTimer("sdf_grad", synchronize=True):
-            tape.backward(loss=sdf_loss)
+    #     with wp.ScopedTimer("sdf_grad", synchronize=True):
+    #         tape.backward(loss=sdf_loss)
 
-        # sdf_vals = wp.zeros_like(leap_model.rigid_contact_thickness)
+    # sdf_vals = wp.zeros_like(leap_model.rigid_contact_thickness)
 
-        # with wp.ScopedTimer("collision", synchronize=True):
-        #     wp.sim.collide(leap_model, state1)
+    # with wp.ScopedTimer("collision", synchronize=True):
+    #     wp.sim.collide(leap_model, state1)
 
-        # with wp.ScopedTimer("sdf_eval", synchronize=True):
-        #     wp.launch(
-        #         kernel=get_cube_sdf,
-        #         dim=int(leap_model.rigid_contact_count.numpy()[0]),
-        #         inputs=[
-        #             sdf_vals,
-        #             leap_model.rigid_contact_point0,
-        #             leap_model.rigid_contact_shape0,
-        #             leap_model.rigid_contact_point1,
-        #             leap_model.shape_geo,
-        #         ],
-        #         device="cuda",
-        #     )
+    # with wp.ScopedTimer("sdf_eval", synchronize=True):
+    #     wp.launch(
+    #         kernel=get_cube_sdf,
+    #         dim=int(leap_model.rigid_contact_count.numpy()[0]),
+    #         inputs=[
+    #             sdf_vals,
+    #             leap_model.rigid_contact_point0,
+    #             leap_model.rigid_contact_shape0,
+    #             leap_model.rigid_contact_point1,
+    #             leap_model.shape_geo,
+    #         ],
+    #         device="cuda",
+    #     )
 
     # integrator = wp.sim.SemiImplicitIntegrator()
     # state0.clear_forces()
