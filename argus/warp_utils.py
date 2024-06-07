@@ -40,6 +40,7 @@ def get_leap_model(mujoco_path: Optional[Path] = None, batch_dim: int = 1):
         leap_builder,
         enable_self_collisions=False,
         collapse_fixed_joints=True,
+        parse_meshes=False,
     )
 
     # Add num_envs builders to final model.
@@ -52,17 +53,19 @@ def get_leap_model(mujoco_path: Optional[Path] = None, batch_dim: int = 1):
     model.ground = False
 
     # Limit mesh collision pairs.
-    # model.rigid_mesh_contact_max = 10
+    model.rigid_mesh_contact_max = 10
+    # model.rigid_contact_max = 10000
 
     # Set up bookkeeping for envs.
     bodies_per_env = model.body_count // batch_dim
     model.cube_ids = wp.from_numpy(bodies_per_env * np.arange(batch_dim), dtype=int)
+    model.bodies_per_env = bodies_per_env
 
     return model
 
 
 @wp.kernel
-def get_cube_sdf(
+def get_cube_sdf_safe(
     body_q: wp.array(dtype=wp.transform),
     shape_body: wp.array(dtype=int),
     point0: wp.array(dtype=wp.vec3),
@@ -72,12 +75,11 @@ def get_cube_sdf(
     contact_normal: wp.array(dtype=wp.vec3),
     cube_ids: wp.array(dtype=int),
     # outputs
-    sdf_val: wp.array(dtype=float),
+    sdf_val: wp.array3d(dtype=float),
 ):
-    """
-    Kernel to compute the SDF value for the given contact point.
-    """
     env_id, coll_id = wp.tid()
+
+    # Extract shape and body ids.
     shape_a = shape0[coll_id]
     shape_b = shape1[coll_id]
 
@@ -90,22 +92,84 @@ def get_cube_sdf(
     if body_a < 0 or body_b < 0:
         return
 
-    # Check that one of the collisions is with this env's cube.
+    # Check if the collision involves the cube.
     if body_a != cube_ids[env_id] and body_b != cube_ids[env_id]:
         return
 
+    # Find the body index that is not the cube
+    if body_a == cube_ids[env_id]:
+        other_body_idx = body_b - cube_ids[env_id] - 1
+    else:
+        other_body_idx = body_a - cube_ids[env_id] - 1
+
+    # Extract the contact point and normal.
     n = contact_normal[coll_id]
     point_a = point0[coll_id]
     point_b = point1[coll_id]
+
+    # Extract the transforms of the bodies.
     X_wb_a = body_q[body_a]
     X_wb_b = body_q[body_b]
 
+    # Transform the contact points to world frame.
     point_a_world = wp.transform_point(X_wb_a, point_a)
     point_b_world = wp.transform_point(X_wb_b, point_b)
 
+    # Compute the signed distance.
     d = wp.dot(n, point_a_world - point_b_world)
+
+    # Put the signed distance in the output array.
     if d < 0:
-        wp.atomic_add(sdf_val, env_id, -d)
+        wp.atomic_add(sdf_val, env_id, other_body_idx, coll_id, -d)
+
+
+# @wp.kernel
+# def get_cube_sdf(
+#     body_q: wp.array(dtype=wp.transform),
+#     shape_body: wp.array(dtype=int),
+#     point0: wp.array(dtype=wp.vec3),
+#     shape0: wp.array(dtype=int),
+#     point1: wp.array(dtype=wp.vec3),
+#     shape1: wp.array(dtype=int),
+#     contact_normal: wp.array(dtype=wp.vec3),
+#     cube_ids: wp.array(dtype=int),
+#     # outputs
+#     sdf_val: wp.array(dtype=float),
+# ):
+#     """
+#     Kernel to compute the SDF value for the given contact point.
+#     """
+#     env_id, coll_id = wp.tid()
+#     shape_a = shape0[coll_id]
+#     shape_b = shape1[coll_id]
+
+#     if shape_a < 0 or shape_b < 0:
+#         return
+
+#     body_a = shape_body[shape_a]
+#     body_b = shape_body[shape_b]
+
+#     if body_a < 0 or body_b < 0:
+#         return
+
+#     # Check that one of the collisions is with this env's cube.
+#     if body_a != cube_ids[env_id] and body_b != cube_ids[env_id]:
+#         return
+
+#     n = contact_normal[coll_id]
+#     point_a = point0[coll_id]
+#     point_b = point1[coll_id]
+#     X_wb_a = body_q[body_a]
+#     X_wb_b = body_q[body_b]
+
+#     point_a_world = wp.transform_point(X_wb_a, point_a)
+#     point_b_world = wp.transform_point(X_wb_b, point_b)
+
+#     print(sdf_val.shape)
+
+#     d = wp.dot(n, point_a_world - point_b_world)
+#     if d < 0:
+#         wp.atomic_add(sdf_val, env_id, -d)
 
 
 # @wp.kernel
@@ -149,7 +213,7 @@ def sdf_loss_factory(leap_model: wp.sim.Model):
             tape = wp.Tape()
 
             # Cache input.
-            ctx.q_warp = wp.from_torch(q_warp.reshape(-1))
+            ctx.q_warp = wp.from_torch(q_warp.reshape(-1), requires_grad=True)
 
             ctx.state = leap_model.state()
 
@@ -157,19 +221,26 @@ def sdf_loss_factory(leap_model: wp.sim.Model):
             ctx.qd_warp = dummy_qd
 
             # Allocate output.
-            sdf_loss = wp.zeros(leap_model.num_envs, dtype=float)
+            sdf_loss = wp.zeros(
+                shape=(
+                    leap_model.num_envs,
+                    leap_model.bodies_per_env - 1,
+                    leap_model.rigid_contact_max,
+                ),
+                dtype=float,
+            )
 
             # Run SDF loss.
             with tape:
                 warp.sim.eval_fk(leap_model, ctx.q_warp, ctx.qd_warp, None, ctx.state)
                 warp.sim.collide(leap_model, ctx.state)
 
-                breakpoint()
+                # breakpoint()
                 wp.launch(
-                    kernel=get_cube_sdf,
+                    kernel=get_cube_sdf_safe,
                     dim=(
                         leap_model.num_envs,
-                        leap_model.rigid_contact_count.numpy()[0],
+                        leap_model.rigid_contact_max,
                     ),
                     inputs=[
                         ctx.state.body_q,
@@ -200,8 +271,195 @@ def sdf_loss_factory(leap_model: wp.sim.Model):
     return SDFLoss
 
 
+@wp.kernel
+def get_contact_points_modern(
+    body_q: wp.array(dtype=wp.transform),
+    shape_body: wp.array(dtype=int),
+    contact_count: wp.array(dtype=int),
+    contact_point0: wp.array(dtype=wp.vec3),
+    contact_point1: wp.array(dtype=wp.vec3),
+    contact_normal: wp.array(dtype=wp.vec3),
+    contact_shape0: wp.array(dtype=int),
+    contact_shape1: wp.array(dtype=int),
+    cube_ids: wp.array(dtype=int),
+    # outputs
+    contact_points_cube: wp.array2d(dtype=wp.vec3),
+    contact_points_other: wp.array2d(dtype=wp.vec3),
+    sdf_vals: wp.array2d(dtype=float),
+):
+    env_id, contact_id = warp.tid()
+    if contact_id >= contact_count[0]:
+        return
+
+    shape_a = contact_shape0[contact_id]
+    shape_b = contact_shape1[contact_id]
+
+    if shape_a == shape_b:
+        return
+
+    body_a = -1
+    body_b = -1
+
+    if shape_a >= 0:
+        body_a = shape_body[shape_a]
+
+    if shape_b >= 0:
+        body_b = shape_body[shape_b]
+
+    # Check if the contact is this env's cube.
+    if body_a != cube_ids[env_id] and body_b != cube_ids[env_id]:
+        return
+
+    n = contact_normal[contact_id]
+    bx_a = contact_point0[contact_id]
+    bx_b = contact_point1[contact_id]
+
+    if body_a >= 0:
+        X_wb_a = body_q[body_a]
+        wx_a = wp.transform_point(X_wb_a, bx_a)
+
+    if body_b >= 0:
+        X_wb_b = body_q[body_b]
+        wx_b = wp.transform_point(X_wb_b, bx_b)
+
+    d = wp.dot(n, wx_a - wx_b)
+    if d < 0:
+        if body_a == cube_ids[env_id]:
+            contact_points_cube[env_id, contact_id] = wx_a
+            contact_points_other[env_id, contact_id] = wx_b
+        else:
+            contact_points_cube[env_id, contact_id] = wx_b
+            contact_points_other[env_id, contact_id] = wx_a
+        sdf_vals[env_id, contact_id] = -d
+
+
+@wp.kernel
+def get_contact_points(
+    body_q: wp.array(dtype=wp.transform),
+    shape_body: wp.array(dtype=int),
+    point0: wp.array(dtype=wp.vec3),
+    shape0: wp.array(dtype=int),
+    point1: wp.array(dtype=wp.vec3),
+    shape1: wp.array(dtype=int),
+    contact_normal: wp.array(dtype=wp.vec3),
+    cube_ids: wp.array(dtype=int),
+    # outputs
+    contact_points: wp.array2d(dtype=wp.vec3),
+):
+    env_id, coll_id = wp.tid()
+
+    # Extract shape and body ids.
+    shape_a = shape0[coll_id]
+    shape_b = shape1[coll_id]
+
+    if shape_a < 0 or shape_b < 0:
+        return
+
+    body_a = shape_body[shape_a]
+    body_b = shape_body[shape_b]
+
+    if body_a < 0 or body_b < 0:
+        return
+
+    # Check if the collision involves the cube.
+    if body_a != cube_ids[env_id] and body_b != cube_ids[env_id]:
+        return
+
+    # Extract the contact point and normal.
+    n = contact_normal[coll_id]
+    point_a = point0[coll_id]
+    point_b = point1[coll_id]
+
+    # Extract the transforms of the bodies.
+    X_wb_a = body_q[body_a]
+    X_wb_b = body_q[body_b]
+
+    # Transform the contact points to world frame.
+    point_a_world = wp.transform_point(X_wb_a, point_a)
+    point_b_world = wp.transform_point(X_wb_b, point_b)
+
+    # Compute the signed distance.
+    d = wp.dot(n, point_a_world - point_b_world)
+
+    # Put the world-frame points in the output array.
+    if d < 0:
+        if body_a == cube_ids[env_id]:
+            contact_points[env_id, coll_id] = point_a_world
+        else:
+            # assert body_b == cube_ids[env_id]
+            contact_points[env_id, coll_id] = point_b_world
+
+
+@wp.kernel
+def batch_transform(
+    transform: wp.array(dtype=wp.transform),
+    in_points: wp.array(dtype=wp.vec3),
+    # outputs
+    out_points: wp.array(dtype=wp.vec3),
+):
+    point_id = wp.tid()
+    out_points[point_id] = wp.transform_point(transform[0], in_points[point_id])
+
+
+def plot_contact_points(q_leap: torch.tensor, leap_model: wp.sim.Model):
+    assert q_leap.shape[0] == leap_model.num_envs
+    assert q_leap.shape[1] == leap_model.joint_coord_count // leap_model.num_envs
+
+    # Cache input.
+    q_warp = wp.from_torch(q_leap.reshape(-1))
+
+    state = leap_model.state()
+
+    # Create dummy velocity for FK.
+    qd_warp = wp.zeros(leap_model.joint_dof_count, dtype=float, requires_grad=False)
+
+    warp.sim.eval_fk(leap_model, q_warp, qd_warp, None, state)
+    warp.sim.collide(leap_model, state)
+
+    # Pull out contact points
+    contact_points_cube = wp.zeros(
+        shape=(
+            leap_model.num_envs,
+            leap_model.rigid_contact_max,
+        ),
+        dtype=wp.vec3,
+    )
+
+    contact_points_other = wp.zeros_like(contact_points_cube)
+
+    sdf_vals = wp.zeros(
+        shape=(
+            leap_model.num_envs,
+            leap_model.rigid_contact_max,
+        ),
+        dtype=float,
+    )
+
+    wp.launch(
+        kernel=get_contact_points_modern,
+        dim=(
+            leap_model.num_envs,
+            leap_model.rigid_contact_max,
+        ),
+        inputs=[
+            state.body_q,
+            leap_model.shape_body,
+            leap_model.rigid_contact_count,
+            leap_model.rigid_contact_point0,
+            leap_model.rigid_contact_point1,
+            leap_model.rigid_contact_normal,
+            leap_model.rigid_contact_shape0,
+            leap_model.rigid_contact_shape1,
+            leap_model.cube_ids,
+        ],
+        outputs=[contact_points_cube, contact_points_other, sdf_vals],
+    )
+
+    breakpoint()
+
+
 if __name__ == "__main__":
-    batch_dim = 5
+    batch_dim = 2
     leap_model = get_leap_model(batch_dim=batch_dim)
     state = leap_model.state()
     example_q0 = np.array(
@@ -294,7 +552,7 @@ if __name__ == "__main__":
         torch.from_numpy(np.stack([example_q1] * batch_dim, axis=0)).float().cuda()
     )
     q_batch.requires_grad = True
-    breakpoint()
+    # breakpoint()
     # q_batch = torch.randn(
     #     batch_dim,
     #     leap_model.joint_coord_count // batch_dim,
@@ -302,9 +560,14 @@ if __name__ == "__main__":
     #     requires_grad=True,
     # )
     with wp.ScopedTimer("sdf_loss", synchronize=True):
-        sdf_loss = SDFLoss.apply(q_batch).mean()
+        sdf_loss = SDFLoss.apply(q_batch).max(-1)[0].sum(-1)
+
+    # breakpoint()
     # with wp.ScopedTimer("sdf_loss_grad", synchronize=True):
     #     sdf_loss.backward()
+
+    # Generate and plot contact points.
+    plot_contact_points(q_batch, leap_model)
 
     breakpoint()
 
