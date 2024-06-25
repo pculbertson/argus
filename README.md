@@ -6,7 +6,12 @@ A vision-based pose estimator for the in-hand manipulation hardware setup in the
 1. Clone this repository and `cd` into the repo root.
 2. Manage the `cudatoolkit` version and `python` dependencies using `conda` by running the following
 ```
-conda env create --name <your_env_name> --file=environment.yml
+# one-liner - this seems to break warp install if you need it
+# conda env create --name <your_env_name> --file=environment.yml
+
+# multi-liner - this works well with building warp if needed. manually install conda deps
+conda create -n <your_env_name> python=3.10
+conda install cuda -c nvidia/label/cuda-12.2.2
 
 # pick the install command that is most relevant to you!
 pip install -e .  # if you don't need unity or dev dependencies
@@ -24,6 +29,15 @@ pip install -e .[dev]  # use [dev] for dev tooling and testing + unity - else, d
     wandb login
     ```
     When prompted, enter your API key.
+
+5. To also install warp, do additionally the following:
+```
+conda install -c conda-forge cxx-compiler
+git clone https://link.to.warp.or.a.forks.git  # fill this out
+cd /path/to/warp/repo  # fill this out
+python build_lib.py --no_standalone
+pip install -e .
+```
 
 ## Usage
 
