@@ -169,6 +169,7 @@ outputs.zip
 outputs_rgb
 leapargus_rgb
 argus_depth
+unity_build_files
 
 # wandb
 wandb/
