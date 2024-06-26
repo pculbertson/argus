@@ -162,6 +162,11 @@ cython_debug/
 # data
 *.hdf5
 outputs
+argus/output
+LeapProject
+temp_unity_files
+outputs.zip
+outputs_rgb
 
 # wandb
 wandb/

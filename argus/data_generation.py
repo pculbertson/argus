@@ -144,6 +144,7 @@ class GenerateDataConfig:
     n_agents: int = 1
     cam1_nominal: Optional[np.ndarray] = None
     cam2_nominal: Optional[np.ndarray] = None
+    depth_cam_nominal: Optional[np.ndarray] = None
     bounds_trans: float = 0.005
     quat_stdev: float = 0.05
     cam_rgb_range: tuple[float] = (0.5, 1.0)
@@ -192,6 +193,18 @@ class GenerateDataConfig:
                     -0.14644661,
                 ]
             )
+        if self.depth_cam_nominal is None:
+            self.depth_cam_nominal = np.array(
+                [
+                    0.14786571,
+                    0.125994,
+                    0.00858148,
+                    -0.35355339,
+                    -0.35355339,
+                    0.85355339,
+                    -0.14644661,
+                ]
+            )            
 
         # checking on the rgb range parameter
         assert isinstance(self.cam_rgb_range, tuple), "cam_rgb_range must be a 2-tuple!"
@@ -208,6 +221,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
     output_data_path = cfg.output_data_path
     cam1_nominal = cfg.cam1_nominal
     cam2_nominal = cfg.cam2_nominal
+    depth_cam_nominal = cfg.depth_cam_nominal
     cam_rgb_range = cfg.cam_rgb_range
     bounds_trans = cfg.bounds_trans
     quat_stdev = cfg.quat_stdev
@@ -244,7 +258,7 @@ def generate_data(cfg: GenerateDataConfig) -> None:
     img_stems = [f"img/img{i}" for i in range(num_data)]
     with h5py.File(Path(output_data_path) / f"{Path(output_data_path).stem}.hdf5", "w") as f:
         # high-level attributes
-        f.attrs["n_cams"] = 2
+        f.attrs["n_cams"] = 3 # take the depth_cam into account
 
         # the train/test split
         cube_poses_train = cube_poses_truncated[idxs_shuf][:train_test_idx]
@@ -285,6 +299,13 @@ def generate_data(cfg: GenerateDataConfig) -> None:
             bounds_trans=bounds_trans,
             quat_stdev=quat_stdev,
         )  # (n_agents, 7)
+        depth_cam_poses = generate_random_camera_poses(
+            n_agents,
+            depth_cam_nominal[:3],
+            depth_cam_nominal[3:],
+            bounds_trans=bounds_trans,
+            quat_stdev=quat_stdev,
+        )  # (n_agents, 7)       
         light_poses = generate_random_light_source_poses(n_agents)  # (n_agents, 7)
 
         action = np.zeros((n_agents, expected_action_size))
@@ -292,9 +313,11 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         action[:, 7:10] = np.random.uniform(*cam_rgb_range, size=(n_agents, 3))
         action[:, 10:17] = cam2_poses
         action[:, 17:20] = np.random.uniform(*cam_rgb_range, size=(n_agents, 3))
-        action[:, 20:27] = cube_poses_batch
-        action[:, 27:34] = light_poses
-        action[:, 34:50] = q_leap_batch
+        action[:, 20:27] = depth_cam_poses
+        action[:, 27:30] = np.random.uniform(*cam_rgb_range, size=(n_agents, 3))        
+        action[:, 30:37] = cube_poses_batch
+        action[:, 37:44] = light_poses
+        action[:, 44:60] = q_leap_batch
 
         # advancing the Unity sim and rendering out observations
         action_tuple = ActionTuple(continuous=action)
@@ -303,21 +326,28 @@ def generate_data(cfg: GenerateDataConfig) -> None:
         decision_steps, terminal_steps = env.get_steps(behavior_name)
 
         # observing the system
-        cam1_obs = decision_steps.obs[0]  # (n_agents, 3, H, W)
-        cam2_obs = decision_steps.obs[1]  # (n_agents, 3, H, W)
+        cam1_obs = decision_steps.obs[1]  # (n_agents, 3, H, W)
+        cam2_obs = decision_steps.obs[2]  # (n_agents, 3, H, W)
+        depth_cam_obs = decision_steps.obs[0]  # (n_agents, 3, H, W)
 
         # bagging the data
         H, W = cam1_obs.shape[-2:]
+
+        # TODO: Remove later
+        num_channels_depth = depth_cam_obs.shape[1]
+        print(f"Number of channels in depth_cam_obs: {num_channels_depth}") 
+
         if episode == 0:
             with h5py.File(Path(output_data_path) / f"{Path(output_data_path).stem}.hdf5", "a") as f:
                 f.attrs["H"] = center_crop[0] if center_crop else H
                 f.attrs["W"] = center_crop[1] if center_crop else W
 
-        imgs = np.concatenate([cam1_obs, cam2_obs], axis=1).reshape(n_agents, 6, H, W)
+        imgs = np.concatenate([cam1_obs, cam2_obs, depth_cam_obs], axis=1).reshape(n_agents, 9, H, W)
         for _ in range(n_agents):
             # [NOTE] images are saved with uint8 pixel values from 0 to 255!
             img_a = Image.fromarray((imgs[0, :3, ...].transpose(1, 2, 0) * 255).astype(np.uint8))
-            img_b = Image.fromarray((imgs[0, 3:, ...].transpose(1, 2, 0) * 255).astype(np.uint8))
+            img_b = Image.fromarray((imgs[0, 3:6, ...].transpose(1, 2, 0) * 255).astype(np.uint8))
+            img_depth = Image.fromarray((imgs[0, 6:, ...].transpose(1, 2, 0) * 255).astype(np.uint8))
 
             # center crop the images
             if center_crop:
@@ -337,10 +367,19 @@ def generate_data(cfg: GenerateDataConfig) -> None:
                         (H + center_crop[0]) / 2,
                     )
                 )
+                img_depth = img_depth.crop(
+                    (
+                        (W - center_crop[1]) / 2,
+                        (H - center_crop[0]) / 2,
+                        (W + center_crop[1]) / 2,
+                        (H + center_crop[0]) / 2,
+                    )
+                )                
 
             # save
             img_a.save(Path(output_data_path) / f"img/img{img_idx}_a.png")
             img_b.save(Path(output_data_path) / f"img/img{img_idx}_b.png")
+            img_depth.save(Path(output_data_path) / f"img/img{img_idx}_depth.png")
             img_idx += 1
 
     env.close()
