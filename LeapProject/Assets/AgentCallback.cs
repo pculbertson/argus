@@ -12,19 +12,48 @@ public class AgentCallback : Agent {
     private Rigidbody cube;
     private Camera cam1;
     private Camera cam2;
+    private Camera depthCam1;
+    private Camera depthCam2;
     private Color cam1BackgroundColor;
     private Color cam2BackgroundColor;
+    private Color depthCam1BackgroundColor; // doesn't affect background for depthCam (placeholder)
+    private Color depthCam2BackgroundColor; // doesn't affect background for depthCam (placeholder)
     private Light lightSource;
 
     // Start is called before the first frame update
     void Start() {
         hand = this.GetComponentInChildren<ArticulationBody>();
         cube = this.GetComponentInChildren<Rigidbody>();
-        cam1 = this.GetComponentsInChildren<Camera>()[0];
-        cam1.clearFlags = CameraClearFlags.SolidColor;
-        cam2 = this.GetComponentsInChildren<Camera>()[1];
-        cam2.clearFlags = CameraClearFlags.SolidColor;
         lightSource = this.GetComponentInChildren<Light>();
+
+
+        Camera[] cameras = this.GetComponentsInChildren<Camera>();
+        
+        foreach (Camera cam in cameras)
+        {
+            switch (cam.name)
+            {
+                case "cam1":
+                    cam1 = cam;
+                    cam1.clearFlags = CameraClearFlags.SolidColor;
+                    break;
+                case "cam2":
+                    cam2 = cam;
+                    cam2.clearFlags = CameraClearFlags.SolidColor;
+                    break;
+                case "depthCam1":
+                    depthCam1 = cam;
+                    depthCam1.clearFlags = CameraClearFlags.SolidColor;
+                    break;
+                case "depthCam2":
+                    depthCam2 = cam;
+                    depthCam2.clearFlags = CameraClearFlags.SolidColor;
+                    break;
+                default:
+                    Debug.LogWarning("Camera with unexpected name found: " + cam.name);
+                    break;
+            }
+        }        
 
         // setting up the dictionary for desired joint order
         jointMap = new Dictionary<int, int>();
@@ -48,8 +77,9 @@ public class AgentCallback : Agent {
     public override void CollectObservations(VectorSensor sensor) { /** do nothing **/ }
 
     public override void OnActionReceived(ActionBuffers actionBuffers) {
-        // there are a total of 2 * 10 + 7 + 7 + 16 = 50 actions
+        // there are a total of 3 * 10 + 7 + 7 + 16 = 60 actions
         // * each of the two cameras has 7 DOFs and 3 exposed colors
+        // The exposed colors don't matter for depth due to shader configuration
         // * the cube has 7 DOFs
         // * the light pose has 7 DOFs
         // * the hand has 16 DOFs
@@ -81,15 +111,35 @@ public class AgentCallback : Agent {
         cam2BackgroundColor.b = actionList[19];
         cam2.backgroundColor = cam2BackgroundColor;
 
+        depthCam1.transform.localPosition = new Vector3(actionList[20], actionList[21], actionList[22]);
+        Vector4 quat_depth1_cam = new Vector4(actionList[23], actionList[24], actionList[25], actionList[26]);
+        quat_depth1_cam.Normalize();
+        depthCam1.transform.localRotation = new Quaternion(quat_depth1_cam[0], quat_depth1_cam[1], quat_depth1_cam[2], quat_depth1_cam[3]);
+        // Initialize, but don't use background values for depth (Placeholders)
+        depthCam1BackgroundColor.r = actionList[27];
+        depthCam1BackgroundColor.g = actionList[28];
+        depthCam1BackgroundColor.b = actionList[29];
+        depthCam1.backgroundColor = Color.white;       
+
+        depthCam2.transform.localPosition = new Vector3(actionList[30], actionList[31], actionList[32]);
+        Vector4 quat_depth2_cam = new Vector4(actionList[33], actionList[34], actionList[35], actionList[36]);
+        quat_depth2_cam.Normalize();
+        depthCam2.transform.localRotation = new Quaternion(quat_depth2_cam[0], quat_depth2_cam[1], quat_depth2_cam[2], quat_depth2_cam[3]);
+        // Initialize, but don't use background values for depth (Placeholders)
+        depthCam2BackgroundColor.r = actionList[37];
+        depthCam2BackgroundColor.g = actionList[38];
+        depthCam2BackgroundColor.b = actionList[39];
+        depthCam2.backgroundColor = Color.white; 
+
         // set the cube states
-        cube.transform.localPosition = new Vector3(actionList[20], actionList[21], actionList[22]);
-        Vector4 quat_cube = new Vector4(actionList[23], actionList[24], actionList[25], actionList[26]);
+        cube.transform.localPosition = new Vector3(actionList[40], actionList[41], actionList[42]);
+        Vector4 quat_cube = new Vector4(actionList[43], actionList[44], actionList[45], actionList[46]);
         quat_cube.Normalize();
         cube.transform.localRotation = new Quaternion(quat_cube[0], quat_cube[1], quat_cube[2], quat_cube[3]);
 
         // set the light source pose
-        lightSource.transform.localPosition = new Vector3(actionList[27], actionList[28], actionList[29]);
-        Vector4 quat_light = new Vector4(actionList[30], actionList[31], actionList[32], actionList[33]);
+        lightSource.transform.localPosition = new Vector3(actionList[47], actionList[48], actionList[49]);
+        Vector4 quat_light = new Vector4(actionList[50], actionList[51], actionList[52], actionList[53]);
         quat_light.Normalize();
 
         // Set the light source to look at the cube
@@ -103,7 +153,7 @@ public class AgentCallback : Agent {
         // set the hand states
         var jointPositions = new float[16];
         foreach (var pair in jointMap) {
-            jointPositions[pair.Value] = actionList[34 + pair.Key];
+            jointPositions[pair.Value] = actionList[54 + pair.Key];
         }
 
         hand.SetJointPositions(jointPositions.ToList()); // Set joint positions
@@ -118,7 +168,9 @@ public class AgentCallback : Agent {
         var continuousActions = actionsOut.ContinuousActions;
         for (int ii = 0; ii < continuousActions.Length; ii++) {
             // if colors, only generate numbers in the [0, 1] range
-            if (ii == 7 || ii == 8 || ii == 9 || ii == 17 || ii == 18 || ii == 19) {
+            if (ii == 7 || ii == 8 || ii == 9 || ii == 17 || ii == 18 || ii == 19 ||
+                 ii == 27 || ii == 28 || ii == 29 || ii == 37 || ii == 38 || ii == 39) {
+                    // retrieve color for depth background but don't use them 
                 continuousActions[ii] = Random.Range(0.0f, 1.0f);
             } else {
                 continuousActions[ii] = Random.Range(-0.3f, 0.3f);
