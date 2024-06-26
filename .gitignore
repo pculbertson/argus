@@ -167,6 +167,8 @@ LeapProject
 temp_unity_files
 outputs.zip
 outputs_rgb
+leapargus_rgb
+argus_depth
 
 # wandb
 wandb/
