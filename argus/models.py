@@ -47,7 +47,7 @@ class NCameraCNN(nn.Module):
         self.num_channels = 3 * cfg.n_cams  # RGB-only for each cam, all channels concatenated
         self.resnet_output_dim = cfg.resnet_output_dim
 
-        self.n_cams = self.n_cams
+        self.n_cams = cfg.n_cams
 
         # adjust the first convolutional layer to match the correct number of input channels
 

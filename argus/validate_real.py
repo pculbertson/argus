@@ -35,7 +35,7 @@ def validate_real(cfg: ValRealConfig) -> None:
     # load pose estimator model
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = NCameraCNN(NCameraCNNConfig()).to(device)
-    model.load_state_dict(torch.load(cfg.model_path))
+    model.load_state_dict(torch.load(cfg.model_path, map_location=torch.device('cpu')))
     model.eval()
 
     # mujoco model for rendering
