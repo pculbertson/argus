@@ -28,6 +28,7 @@ class ValRealConfig:
 
     model_path: str
     dataset_config: CameraCubePoseDatasetConfig
+    n_cams: int = 4
 
 
 def validate_real(cfg: ValRealConfig) -> None:
@@ -35,7 +36,7 @@ def validate_real(cfg: ValRealConfig) -> None:
     # load pose estimator model
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = NCameraCNN(NCameraCNNConfig()).to(device)
-    model.load_state_dict(torch.load(cfg.model_path, map_location=torch.device('cpu')))
+    model.load_state_dict(torch.load(cfg.model_path))
     model.eval()
 
     # mujoco model for rendering
@@ -55,20 +56,24 @@ def validate_real(cfg: ValRealConfig) -> None:
     # saving image analysis frames
     np.set_printoptions(suppress=True)  # suppresses scientific notation during this function
     frames = []
+    print(f"file name is {filename}")
     with h5py.File(filename, "r") as f:
-        _img_stems = f["img_stems"][()]
+
+        _img_stems = f['test']["img_stems"][()]
         img_stems = [byte_string.decode("utf-8") for byte_string in _img_stems]
         for i, img_stem in enumerate(img_stems):
             img_a = Image.open(f"{dataset_path}/{img_stem}_a.png")  # (H, W, 3)
             img_b = Image.open(f"{dataset_path}/{img_stem}_b.png")  # (H, W, 3)
-            img = np.concatenate([np.array(img_a), np.array(img_b)], axis=-1).transpose(2, 0, 1)  # (6, H, W)
-            float_img = torch.from_numpy(img).to(device).to(torch.float32) / 255.0  # (6, H, W)
+            img_depth1 = Image.open(f"{dataset_path}/{img_stem}_depth_a.png")  # (H, W, 3)
+            img_depth2 = Image.open(f"{dataset_path}/{img_stem}_depth_b.png")  # (H, W, 3)            
+            img = np.concatenate([np.array(img_a), np.array(img_b), np.array(img_depth1), np.array(img_depth2)], axis=-1).transpose(2, 0, 1)  # (n_cams * 3, H, W)
+            float_img = torch.from_numpy(img).to(device).to(torch.float32) / 255.0  # (n_cams * 3, H, W)
 
             if cfg.dataset_config.center_crop:
                 H_crop, W_crop = cfg.dataset_config.center_crop
-                _float_img = float_img.reshape(2, 3, *float_img.shape[-2:])  # (2, 3, H, W)
+                _float_img = float_img.reshape(cfg.n_cams, 3, *float_img.shape[-2:])  # (n_cams, 3, H, W)
                 _float_img = kornia.geometry.transform.center_crop(_float_img, (H_crop, W_crop))
-                float_img = _float_img.reshape(-1, H_crop, W_crop).unsqueeze(0)  # (1, 6, H_crop, W_crop)
+                float_img = _float_img.reshape(-1, H_crop, W_crop).unsqueeze(0)  # (1, n_cams * 3, H_crop, W_crop)
 
             pred_pose_xyzw = get_pose(float_img, model)[0]  # (num_images, 7)
             pred_pose_wxyz = xyzxyzw_to_xyzwxyz_SE3(pred_pose_xyzw)  # (num_images, 7)
@@ -77,7 +82,7 @@ def validate_real(cfg: ValRealConfig) -> None:
             mujoco.mj_forward(m, d)
 
             float_img_numpy = float_img.detach().cpu().numpy()
-            float_img_numpy = float_img_numpy.reshape(2, 3, *float_img_numpy.shape[-2:]).transpose(0, 2, 3, 1)
+            float_img_numpy = float_img_numpy.reshape(cfg.n_cams, 3, *float_img_numpy.shape[-2:]).transpose(0, 2, 3, 1)
 
             # top row: side 1
             plt.subplot(2, 2, 1)
