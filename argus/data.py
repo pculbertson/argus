@@ -208,13 +208,15 @@ class CameraCubePoseDataset(Dataset):
         img_stem = self.img_stems[idx]
         img_a = Image.open(f"{self.dataset_path}/{img_stem}_a.png")  # (H, W, 3)
         img_b = Image.open(f"{self.dataset_path}/{img_stem}_b.png")  # (H, W, 3)
+        img_depth1 = Image.open(f"{self.dataset_path}/{img_stem}_depth_a.png")  # (H, W, 3)
+        img_depth2 = Image.open(f"{self.dataset_path}/{img_stem}_depth_b.png")  # (H, W, 3)
 
         # Draw random arcs if self.augmentation.spaghetti is True
         if self.cfg_aug.num_spaghetti > 0:
             img_a = draw_spaghetti(img_a, self.cfg_aug.num_spaghetti)
             img_b = draw_spaghetti(img_b, self.cfg_aug.num_spaghetti)
 
-        _images = np.concatenate([np.array(img_a), np.array(img_b)], axis=-1).transpose(2, 0, 1)  # (n_cams * 3, H, W)
+        _images = np.concatenate([np.array(img_a), np.array(img_b), np.array(img_depth1), np.array(img_depth2)], axis=-1).transpose(2, 0, 1)  # (n_cams * 3, H, W)
         images = torch.tensor(_images) / 255.0  # (n_cams * 3, H, W)
         if self.center_crop and images.shape[-2:] != self.center_crop:  # crop if not already cropped and requested
             images = kornia.geometry.transform.center_crop(

@@ -299,7 +299,7 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
                 device_type="cuda" if device.type == "cuda" else "cpu", dtype=torch.float16, enabled=cfg.amp
             ):
                 # loading data
-                images = example["images"].to(device)  # (B, 6, H, W)
+                images = example["images"].to(device)  # (B, 12, H, W)
                 cube_pose_SE3 = pp.SE3(example["cube_pose"].to(device))  # quats are (x, y, z, w)
 
                 # forward pass

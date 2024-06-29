@@ -19,7 +19,7 @@ class NCameraCNNConfig:
         resnet_output_dim: The output dimension of the ResNet model (before final FC layer).
     """
 
-    n_cams: int = 2
+    n_cams: int = 4
     resnet_output_dim: int = 1024
 
 

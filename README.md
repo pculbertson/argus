@@ -60,7 +60,7 @@ python argus/train.py --dataset-config.dataset-path outputs/data/cube_unity_data
 
 To run some visual evaluations as sanity checks, run
 ```
-python argus/validate.py --model-path /home/albert/research/argus/outputs/models/<checkpoint>.pth
+python argus/validate.py --model-path /home/albert/research/argus/outputs/models/<checkpoint>.pth --dataset-config.dataset-path outputs/data/cube_unity_data_<small,medium,large>
 ```
 This will save out images showing qualitative performance on the validation set to the directory `/REPO_ROOT/outputs/validation_visuals/<checkpoint>`.
 

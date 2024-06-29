@@ -28,6 +28,7 @@ dependencies = [
     "tqdm>=4.66.4",
     "tyro>=0.8.4",
     "wandb>=0.17.0",
+    "imageio>=2.33.1",
 ]
 
 [project.optional-dependencies]
