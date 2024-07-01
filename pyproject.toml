@@ -35,6 +35,10 @@ dependencies = [
 unity = [
     "mlagents==1.0.0",
 ]
+warp = [
+    "trimesh>=4.0.0",
+    "plotly>=5.0.0",
+]
 dev = [
     "unity",
     "black>=23.3.0",

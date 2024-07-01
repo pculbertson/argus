@@ -1,11 +1,13 @@
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+import torch
 import warp as wp
 import warp.sim
 from warp.sim.collide import box_sdf, box_sdf_grad
+
 from argus import ROOT
-from pathlib import Path
-from typing import Optional
-import numpy as np
-import torch
 
 wp.init()
 # wp.config.verify_cuda = True
@@ -15,9 +17,7 @@ def get_leap_model(mujoco_path: Optional[Path] = None, batch_dim: int = 1):
     if mujoco_path is None:
         # Use default model path.
         leap_mjcf_model_path = Path(ROOT) / "mujoco" / "leap" / "leap_hand.xml"
-        cube_model_path = (
-            Path(ROOT) / "mujoco" / "common_assets" / "reorientation_cube.xml"
-        )
+        cube_model_path = Path(ROOT) / "mujoco" / "common_assets" / "reorientation_cube.xml"
     else:
         leap_mjcf_model_path = mujoco_path / "leap" / "leap_hand.xml"
         cube_model_path = mujoco_path / "common_assets" / "reorientation_cube.xml"
@@ -206,9 +206,7 @@ def sdf_loss_factory(leap_model: wp.sim.Model):
         @staticmethod
         def forward(ctx, q_warp):
             assert q_warp.shape[0] == leap_model.num_envs
-            assert (
-                q_warp.shape[1] == leap_model.joint_coord_count // leap_model.num_envs
-            )
+            assert q_warp.shape[1] == leap_model.joint_coord_count // leap_model.num_envs
 
             tape = wp.Tape()
 
@@ -264,9 +262,7 @@ def sdf_loss_factory(leap_model: wp.sim.Model):
         def backward(ctx, grad_output):
             ctx.tape.backward(grads={ctx.sdf_loss: wp.from_torch(grad_output)})
 
-            return wp.to_torch(ctx.tape.gradients[ctx.q_warp]).reshape(
-                leap_model.num_envs, -1
-            )
+            return wp.to_torch(ctx.tape.gradients[ctx.q_warp]).reshape(leap_model.num_envs, -1)
 
     return SDFLoss
 
@@ -548,9 +544,7 @@ if __name__ == "__main__":
     # q0_torch = torch.tensor(example_q0, requires_grad=True, device="cuda")
     # # q1_torch = torch.tensor(example_q1, requires_grad=True, device="cuda")
     # # q2_torch = torch.tensor(example_q2, requires_grad=True, device="cuda")
-    q_batch = (
-        torch.from_numpy(np.stack([example_q1] * batch_dim, axis=0)).float().cuda()
-    )
+    q_batch = torch.from_numpy(np.stack([example_q1] * batch_dim, axis=0)).float().cuda()
     q_batch.requires_grad = True
     # breakpoint()
     # q_batch = torch.randn(

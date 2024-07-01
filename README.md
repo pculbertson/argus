@@ -36,7 +36,7 @@ conda install -c conda-forge cxx-compiler
 git clone https://link.to.warp.or.a.forks.git  # fill this out
 cd /path/to/warp/repo  # fill this out
 python build_lib.py --no_standalone
-pip install -e .
+pip install -e .[extras]
 ```
 
 ## Usage

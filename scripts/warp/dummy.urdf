@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<robot name="toy_robot">
+
+  <link name="world"/>
+
+  <link name="link1">
+    <visual>
+      <geometry>
+        <box size="0.2 0.2 1.0"/>
+      </geometry>
+      <material name="green">
+        <color rgba="0 1 0 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.2 0.2 1.0"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="link2">
+    <visual>
+      <geometry>
+        <box size="0.2 0.2 0.8"/>
+      </geometry>
+      <material name="red">
+        <color rgba="1 0 0 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.2 0.2 0.8"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="world_to_link1" type="fixed">
+    <parent link="world"/>
+    <child link="link1"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <joint name="joint1" type="revolute">
+    <parent link="link1"/>
+    <child link="link2"/>
+    <origin xyz="0 0 1.0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.57" upper="1.57" effort="1.0" velocity="1.0"/>
+  </joint>
+
+</robot>
