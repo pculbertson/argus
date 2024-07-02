@@ -17,6 +17,13 @@
 			<origin rpy="0 0 0" xyz="0.125 0 0"/>
 			<material name="black"/>
 		</visual>
+    <collision>
+			<geometry>
+				<box size="0.25 .05 .05"/>
+			</geometry>
+			<origin rpy="0 0 0" xyz="0.125 0 0"/>
+			<material name="black"/>
+		</collision>
 	</link>
 
 	<link name="arm2">
@@ -27,6 +34,13 @@
 			<origin rpy="0 0 0" xyz="0.125 0 0"/>
 			<material name="white"/>
 		</visual>
+    <collision>
+			<geometry>
+				<box size="0.25 .05 .05"/>
+			</geometry>
+			<origin rpy="0 0 0" xyz="0.125 0 0"/>
+			<material name="white"/>
+		</collision>
 	</link>
 
 	<joint name="interArm" type="revolute">
