@@ -189,7 +189,7 @@ if __name__ == "__main__":
     # the 2-link robot and 7 is the (translation, quat_xyzw) state of the cube
     cube_size = 0.035
     batch_size = 2
-    model = get_model(f"{ROOT}/scripts/warp/dummy.urdf", cube_size=0.035, batch_size=batch_size)
+    model = get_model(f"{ROOT}/scripts/warp/dummy_with_mesh.urdf", cube_size=0.035, batch_size=batch_size)
     q0 = np.zeros(8)  # creating state for a single robot
     q0[1] = 0.5  # x position of the cube is 0.5 meters out
     q0[7] = 1.0  # w coordinate of the quaternion

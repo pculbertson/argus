@@ -41,13 +41,36 @@
             <origin rpy="0 0 0" xyz="0.125 0 0"/>
             <material name="white"/>
         </collision>
-	</link>
+    </link>
 
 	<joint name="interArm" type="revolute">
 		<axis rpy="0 0 0" xyz="0 0 1"/>
 		<parent link="arm1"/>
 		<child link="arm2"/>
 		<origin rpy="0 0 0" xyz="0.25 0 0"/>
+	</joint>
+
+    <link name="mesh">
+		<visual>
+			<geometry>
+				<mesh filename="meshes/white_tip.obj"/>
+			</geometry>
+			<origin rpy="0 0 0" xyz="0.125 0 0"/>
+			<material name="white"/>
+		</visual>
+        <collision>
+            <geometry>
+                <mesh filename="meshes/white_tip.obj"/>
+            </geometry>
+            <origin rpy="0 0 0" xyz="0.125 0 0"/>
+            <material name="white"/>
+        </collision>
+    </link>
+
+    <joint name="tipJoint" type="fixed">
+		<parent link="arm2"/>
+		<child link="mesh"/>
+		<origin rpy="0 0 0" xyz="0.125 0 0"/>
 	</joint>
 
 </robot>
