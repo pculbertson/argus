@@ -129,33 +129,6 @@ def get_cube_contact_points_and_sdf_vals(
     sdf_vals[contact_id] = sdf_value
 
 
-@wp.kernel
-def batched_flipped_elu(
-    x: wp.array(dtype=float),
-    rigid_contact_count: wp.array(dtype=int),
-    # outputs
-    y: wp.array(dtype=float),
-) -> None:
-    """A batched version of the scaled, flipped ELU function.
-
-    Inputs:
-        x: The input tensor.
-
-    Outputs:
-        y: The output tensor.
-    """
-    i = wp.tid()
-    alpha = 0.0005
-    if i >= rigid_contact_count[0]:
-        y[i] = 0.0
-        return
-
-    if x[i] > 0:
-        y[i] = alpha * wp.exp(-x[i] / alpha)
-    else:
-        y[i] = alpha * (1.0 - x[i] / alpha)
-
-
 class ComputeSignedDistances(torch.autograd.Function):
     """A custom autograd function to compute the SDF loss."""
 
