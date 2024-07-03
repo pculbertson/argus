@@ -52,7 +52,10 @@ def get_model(path: str | Path, cube_size: float = 0.035, batch_size: int = 1) -
 
     model = builder.finalize(requires_grad=True)
     model.ground = False
-    cube_idxs = cube_idx_in_model + (model.body_count // batch_size) * np.arange(batch_size)
+    bodies_per_env = model.body_count // batch_size
+    cube_idxs = np.concatenate(
+        [[cube_idx_in_model + i * bodies_per_env] * bodies_per_env for i in range(batch_size)]
+    )  # (model.body_count,), for each body in the model, this is the corresponding cube index
     model.cube_idxs = wp.array(cube_idxs, dtype=int)
     return model
 
@@ -67,44 +70,14 @@ def get_cube_contact_points_and_sdf_vals(
     rigid_contact_point1: wp.array(dtype=wp.vec3),
     body_q: wp.array(dtype=wp.transform),
     rigid_contact_normal: wp.array(dtype=wp.vec3),
+    batch_size: int,
     # outputs
     batch_idxs: wp.array(dtype=int),
     contact_points_cube: wp.array(dtype=wp.vec3),
     contact_points_other: wp.array(dtype=wp.vec3),
     sdf_vals: wp.array(dtype=float),
 ):
-    """Kernel to retrieve contact points.
-
-    This kernel computes all the contact points between cube geometries and any other geometry in the scene. It also
-    returns the penetration values associated with each collision pair. Note that rigid_contact_count is the number of
-    contacts that were generated across ALL BATCHES. Therefore, the dimension of all the inputs already includes the
-    batch dimension implicitly. However, it is flattened because it is possible for the number of contacts in each
-    batch element to be different, so we cannot use a 2D array to store the data.
-
-    Steps:
-        (1) Get the shapes for a pair of contacts.
-        (2) Get the body pair associated with the shape pair.
-        (3) Get the contact points for the body pair, which are expressed in each respective parent body's frame.
-        (4) Transform the contact points to the world frame.
-        (5) Using the world-frame contact normal, also compute the signed distance of the contact pair.
-
-    Inputs:
-        rigid_contact_count: the total number of contacts over the whole batch. Shape: (1,)
-        rigid_contact_shape0: the shape indices of the first object in the contact. Shape: (rigid_contact_count,)
-        rigid_contact_shape1: the shape indices of the second object in the contact. Shape: (rigid_contact_count,)
-        shape_body: the body indices of the shapes. Shape: (shape_count,)
-        cube_idxs: the body indices of the cube. Shape: (batch_size,)
-        rigid_contact_point0: the contact points in the first object's frame. Shape: (rigid_contact_count,)
-        rigid_contact_point1: the contact points in the second object's frame. Shape: (rigid_contact_count,)
-        body_q: the poses of the bodies in the world frame. Shape: (body_count,)
-        rigid_contact_normal: the contact normals in the world frame. Shape: (rigid_contact_count,)
-
-    Outputs:
-        batch_idxs: the batch indices of the collision pairs. Shape: (rigid_contact_count,)
-        contact_points_cube: the contact points on the cube. Shape: (rigid_contact_count,)
-        contact_points_other: the contact points on the other object. Shape: (rigid_contact_count,)
-        sdf_vals: the signed distance values for each contact pair. Shape: (rigid_contact_count,)
-    """
+    """See docstring in 1_two_link_collider.py."""
     contact_id = wp.tid()
 
     # step 1
@@ -117,15 +90,15 @@ def get_cube_contact_points_and_sdf_vals(
     body_idx_0 = shape_body[shape_idx_0]
     body_idx_1 = shape_body[shape_idx_1]
 
-    is_cube_collision = bool(False)
-    for i in range(cube_idxs.shape[0]):  # check whether the collision involves the cube
-        cube_idx = cube_idxs[i]
-        if body_idx_0 == cube_idx or body_idx_1 == cube_idx:
-            is_cube_collision = True
-            break
+    cube_idx_0 = cube_idxs[body_idx_0]
+    cube_idx_1 = cube_idxs[body_idx_1]
+    if cube_idx_0 != body_idx_0 and cube_idx_1 != body_idx_1:
+        return  # ignore collisions that don't involve the cube
 
-    if not is_cube_collision:
-        return  # ignore contacts that don't involve the cube
+    if cube_idx_0 == body_idx_0:
+        is_cube_body0 = True
+    else:
+        is_cube_body0 = False
 
     # step 3
     P0_b0 = rigid_contact_point0[contact_id]  # first contact point in body 0's frame
@@ -141,17 +114,11 @@ def get_cube_contact_points_and_sdf_vals(
     n_W = rigid_contact_normal[contact_id]  # contact normal in world frame from point 2 to point 1
     sdf_value = wp.dot(n_W, P0_W - P1_W)  # signed distance between the contact points
 
-    # checking whether the cube belonged to body 0 or body 1
-    batch_idx = -1
-    is_cube_body0 = bool(False)
-    for i in range(cube_idxs.shape[0]):
-        cube_idx = cube_idxs[i]
-        if body_idx_0 == cube_idx:
-            is_cube_body0 = True
-            batch_idx = i
-            break
-        elif body_idx_1 == cube_idx:
-            batch_idx = i
+    # computing which batch index this contact belongs to
+    for env_idx in range(batch_size):
+        cube_idx = cube_idxs[env_idx * batch_size]
+        if body_idx_0 == cube_idx or body_idx_1 == cube_idx:
+            batch_idxs[contact_id] = env_idx
             break
 
     if is_cube_body0:
@@ -163,7 +130,6 @@ def get_cube_contact_points_and_sdf_vals(
 
     # setting the other outputs
     sdf_vals[contact_id] = sdf_value
-    batch_idxs[contact_id] = batch_idx
 
 
 @wp.kernel
@@ -193,13 +159,13 @@ if __name__ == "__main__":
     q0 = np.zeros(8)  # creating state for a single robot
     q0[1] = 0.5  # x position of the cube is 0.5 meters out
     q0[7] = 1.0  # w coordinate of the quaternion
-    q0_batch = wp.from_numpy(np.concatenate([q0] * batch_size), device="cuda", dtype=float)
+    q0_batch = wp.from_numpy(np.concatenate([q0] * batch_size), device="cuda", dtype=float, requires_grad=True)
 
     # [2] collide and set state
     state = model.state()
-    qd0_batch = wp.zeros(model.joint_dof_count, device="cuda")  # (14,)
+    qd0_batch = wp.zeros(model.joint_dof_count, device="cuda", requires_grad=True)  # (14,)
     wp.sim.eval_fk(model, q0_batch, qd0_batch, None, state)  # updates body states given initial joint states
-    wp.sim.eval_ik(model, state, state.joint_q, state.joint_qd)  # updates joint states w/body states
+    # wp.sim.eval_ik(model, state, state.joint_q, state.joint_qd)  # updates joint states w/body states
     wp.sim.collide(model, state)
 
     # [3] compute contact points - we truncate the contact arrays post collide call to save memory
@@ -208,11 +174,9 @@ if __name__ == "__main__":
 
     rigid_contact_shape0 = model.rigid_contact_shape0[:rigid_contact_count]  # inputs
     rigid_contact_shape1 = model.rigid_contact_shape1[:rigid_contact_count]
-    shape_body = model.shape_body
     rigid_contact_point0 = model.rigid_contact_point0[:rigid_contact_count]
     rigid_contact_point1 = model.rigid_contact_point1[:rigid_contact_count]
     rigid_contact_normal = model.rigid_contact_normal[:rigid_contact_count]
-
     batch_idxs = wp.from_numpy(-np.ones(rigid_contact_count), dtype=int, device="cuda")  # outputs
     contact_points_cube = wp.zeros(rigid_contact_count, dtype=wp.vec3, device="cuda")  # outputs
     contact_points_other = wp.zeros(rigid_contact_count, dtype=wp.vec3, device="cuda")
@@ -230,6 +194,7 @@ if __name__ == "__main__":
             rigid_contact_point1,
             state.body_q,
             rigid_contact_normal,
+            model.num_envs,
         ],
         outputs=[batch_idxs, contact_points_cube, contact_points_other, sdf_vals],
     )
@@ -239,6 +204,8 @@ if __name__ == "__main__":
     contact_points_cube_numpy = contact_points_cube.numpy()
     contact_points_other_numpy = contact_points_other.numpy()
     sdf_vals_numpy = sdf_vals.numpy()
+
+    print(batch_idxs_numpy)
 
     contact_points_dict = {}
     for i in range(batch_size):
@@ -270,8 +237,9 @@ if __name__ == "__main__":
 
     for i in range(batch_size):
         # plot the contact points
-        contact_points_cube = contact_points_dict[i]["contact_points_cube"]
-        contact_points_other = contact_points_dict[i]["contact_points_other"]
+        cp_dict = contact_points_dict[i]
+        contact_points_cube = cp_dict["contact_points_cube"][cp_dict["sdf_vals"] < 0]
+        contact_points_other = cp_dict["contact_points_other"][cp_dict["sdf_vals"] < 0]
         fig.add_trace(
             go.Scatter3d(
                 x=contact_points_cube[:, 0],
