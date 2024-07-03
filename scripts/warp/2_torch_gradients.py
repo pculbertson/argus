@@ -7,10 +7,6 @@ import warp.sim
 
 from argus import ROOT
 
-# ######### #
-# UTILITIES #
-# ######### #
-
 
 def get_model(path: str | Path, cube_size: float = 0.035, batch_size: int = 1) -> wp.sim.Model:
     """Creates a batched model from the supplied path."""
@@ -217,7 +213,7 @@ def loss_function(q0_batch: torch.Tensor, model: wp.sim.Model) -> torch.Tensor:
     """The loss function to minimize.
 
     Args:
-        q0_batch: The batched joint states of the model. q0_batch.shape=(batch_size, model.joint_dof_count).
+        q0_batch: The batched joint states of the model. q0_batch.shape=(batch_size, num_joints).
         model: The batched model.
 
     Returns:
