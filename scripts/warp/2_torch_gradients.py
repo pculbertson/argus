@@ -161,6 +161,10 @@ class ComputeSignedDistances(torch.autograd.Function):
 
             # allocating inputs
             rigid_contact_count = model.rigid_contact_count.numpy()[0].item()  # total number of contacts
+            if rigid_contact_count == 0:
+                sdf_vals = wp.zeros(1, dtype=wp.float32, device="cuda", requires_grad=True)
+                ctx.sdf_vals = sdf_vals
+                return wp.to_torch(ctx.sdf_vals)
             rigid_contact_shape0 = model.rigid_contact_shape0[:rigid_contact_count]
             rigid_contact_shape1 = model.rigid_contact_shape1[:rigid_contact_count]
             rigid_contact_point0 = model.rigid_contact_point0[:rigid_contact_count]
@@ -209,36 +213,73 @@ class ComputeSignedDistances(torch.autograd.Function):
         return wp.to_torch(ctx.tape.gradients[ctx.q]).reshape(ctx.q_batched_shape), None
 
 
-def loss_function(q0_batch: torch.Tensor, model: wp.sim.Model) -> torch.Tensor:
+def loss_function(qrobot_batch: torch.Tensor, qcube_batch: torch.Tensor, model: wp.sim.Model) -> torch.Tensor:
     """The loss function to minimize.
 
     Args:
-        q0_batch: The batched joint states of the model. q0_batch.shape=(batch_size, num_joints).
+        qrobot_batch: The batched joint states of the robot. Shape=(batch_size, 1).
+        qcube_batch: The batched joint states of the cube. Shape=(batch_size, 7).
         model: The batched model.
 
     Returns:
         The loss over all batches. Shape=(,).
     """
     compute_signed_distances = ComputeSignedDistances.apply
+    q0_batch = torch.cat([qrobot_batch, qcube_batch], dim=-1)  # (batch_size, 8)
     sdf_vals = compute_signed_distances(q0_batch, model)
     relu_vals = torch.relu(-sdf_vals)  # 0 loss if signed distance is positive
     return torch.sum(relu_vals)  # sum over all batches
 
 
 if __name__ == "__main__":
+    # [DEBUG] pypose stuff
+    ###########################################################
+    # import pypose as pp
+    # from torch.optim import Adam
+    # asdf = pp.randn_SE3(requires_grad=True)
+    # rand_target = pp.randn_SE3()
+    # optimizer = Adam([asdf], lr=1e-3)
+
+    # losses = []
+    # for _ in range(100):
+    #     loss = torch.sum((asdf @ rand_target.Inv()).Log() ** 2)
+    #     optimizer.zero_grad()
+    #     loss.backward()
+    #     optimizer.step()
+    #     losses.append(loss.item())
+    #     print(f"loss: {loss}")
+    ###########################################################
+
+    import pypose as pp
+    import warp.sim.render
+    from torch.optim import Adam
+
     # setup: copied from 1_two_link_collider.py
     cube_size = 0.035
-    batch_size = 2
-    model = get_model(f"{ROOT}/scripts/warp/dummy_with_mesh.urdf", cube_size=0.035, batch_size=batch_size)
-    q0 = np.zeros(8)
-    q0[1] = 0.5
-    q0[7] = 1.0
-    q0_batch_np = np.stack([q0] * batch_size)
-    q0_batch = torch.tensor(q0_batch_np, device="cuda", dtype=torch.float32, requires_grad=True)  # (2, 8)
+    batch_size = 1
+    path = f"{ROOT}/scripts/warp/dummy_with_mesh.urdf"
+    model = get_model(path, cube_size=0.035, batch_size=batch_size)
+
+    # making robot and cube states - proof of concept for loss decrease with pypose
+    qr_batch = torch.tensor([0.0], device="cuda")
+    qc_batch = pp.Parameter(
+        pp.SE3(
+            torch.tensor(
+                [0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+                device="cuda",
+                dtype=torch.float32,
+                requires_grad=True,
+            ),
+        )
+    )
+    optimizer = Adam([qc_batch], lr=1e-1)
 
     # computing the loss and its gradient
-    loss = loss_function(q0_batch, model)
-    loss.backward()
-    print(loss)
-    print(q0_batch.grad)
-    breakpoint()
+    # protip: WASD to pan the camera
+    # with wp.ScopedDevice("cuda"):
+    for _ in range(10):
+        loss = loss_function(qr_batch, qc_batch, model)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        print(loss.item())
