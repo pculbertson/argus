@@ -275,8 +275,6 @@ if __name__ == "__main__":
     optimizer = Adam([qc_batch], lr=1e-1)
 
     # computing the loss and its gradient
-    # protip: WASD to pan the camera
-    # with wp.ScopedDevice("cuda"):
     for _ in range(10):
         loss = loss_function(qr_batch, qc_batch, model)
         optimizer.zero_grad()
