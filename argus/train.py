@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -7,7 +8,6 @@ import pypose as pp
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-import torch.nn as nn
 import tyro
 import wandb
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -15,12 +15,12 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
-from torchvision import transforms
 from tqdm import tqdm
 from wandb.util import generate_id
 
 from argus import ROOT
-from argus.data import Augmentation, AugmentationConfig, CameraCubePoseDataset, CameraCubePoseDatasetConfig
+from argus.collision_loss import get_warp_model, collision_loss_function
+from argus.data import AugmentationConfig, CameraCubePoseDataset, CameraCubePoseDatasetConfig
 from argus.models import NCameraCNN, NCameraCNNConfig
 
 torch.set_float32_matmul_precision("high")
@@ -68,6 +68,11 @@ class TrainConfig:
     max_grad_norm: float = 1.0
     num_gpus: int = torch.cuda.device_count()
     random_seed: int = 42
+    collision_weight: float = 1e-3
+
+    # Warp parameters
+    cube_size = 0.035
+    leap_urdf_path = ROOT + "/LeapProject/Assets/urdf/robot_warp.urdf"
 
     # speed optimizations
     multigpu: bool = False
@@ -241,6 +246,14 @@ def initialize_training(
     if cfg.wandb_log and rank == 0:
         wandb.init(project=cfg.wandb_project, config=cfg, id=wandb_id, resume="allow")
 
+    warp_model = get_warp_model(cfg.leap_urdf_path, cube_size=cfg.cube_size, batch_size=cfg.batch_size)
+    
+    def loss_fn(cube_pred_se3: torch.Tensor, cube_target: pp.SE3, q_leap: torch.Tensor) -> torch.Tensor:
+        geom_loss = geometric_loss_fn(cube_pred_se3, cube_target)
+        collision_loss = collision_loss_function(q_leap, cube_pred_se3, warp_model)
+        assert geom_loss.shape == collision_loss.shape, f"Shapes: {geom_loss.shape} /= {collision_loss.shape}"
+        return geom_loss + cfg.collision_weight * collision_loss
+
     return (
         train_dataloader,
         val_dataloader,
@@ -301,11 +314,14 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
                 # loading data
                 images = example["images"].to(device)  # (B, 6, H, W)
                 cube_pose_SE3 = pp.SE3(example["cube_pose"].to(device))  # quats are (x, y, z, w)
+                q_leap = example["q_leap"].to(device)
 
                 # forward pass
                 cube_pose_pred_se3 = model(images)  # therefore, the predicted quats are (x, y, z, w)
 
-            losses = loss_fn(cube_pose_pred_se3.to(torch.float32), cube_pose_SE3)
+            breakpoint()
+            losses = loss_fn(cube_pose_pred_se3.to(torch.float32), cube_pose_SE3, q_leap)
+            assert losses.shape == (cfg.batch_size,), f"Losses shape: {losses.shape} /= (B,)"
             loss = torch.mean(losses)
 
             if cfg.wandb_log and (not cfg.multigpu or rank == 0):
@@ -331,12 +347,13 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
                 for example in val_dataloader:
                     images = example["images"].to(device)
                     cube_pose_SE3 = pp.SE3(example["cube_pose"].to(device))
+                    q_leap = example["q_leap"].to(device)
                     with torch.autocast(
                         device_type="cuda" if device.type == "cuda" else "cpu", dtype=torch.float16, enabled=cfg.amp
                     ):
                         cube_pose_pred_se3 = model(images)
 
-                    losses = loss_fn(cube_pose_pred_se3.to(torch.float32), cube_pose_SE3)
+                    losses = loss_fn(cube_pose_pred_se3.to(torch.float32), cube_pose_SE3, q_leap)
                     val_loss.append(losses)
 
                 val_loss = torch.mean(torch.cat(val_loss)).item()

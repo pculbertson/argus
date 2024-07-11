@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torchvision.models as models

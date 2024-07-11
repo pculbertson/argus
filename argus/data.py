@@ -226,6 +226,7 @@ class CameraCubePoseDataset(Dataset):
         return {
             "images": images.to(torch.float32),
             "cube_pose": self.cube_poses[idx].to(torch.float32),
+            "q_leap": self.q_leap[idx].to(torch.float32),
         }
 
 

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pypose as pp
 import torch
 import warp as wp
 import warp.sim
@@ -8,7 +9,7 @@ import warp.sim
 from argus import ROOT
 
 
-def get_model(path: str | Path, cube_size: float = 0.035, batch_size: int = 1) -> wp.sim.Model:
+def get_warp_model(path: str | Path, cube_size: float = 0.035, batch_size: int = 1) -> wp.sim.Model:
     """Creates a batched model from the supplied path."""
     # single robot
     robot_builder = wp.sim.ModelBuilder()
@@ -137,8 +138,6 @@ class ComputeSignedDistances(torch.autograd.Function):
             q_batched: The batched joint states of the model. q_batched.reshape(-1)=(model.joint_dof_count,).
             model: The batched model.
         """
-        wp.synchronize_device()
-
         # getting the warp tensor input from torch
         q = wp.from_torch(q_batched.reshape(-1))
         assert q.shape == model.joint_q.shape
@@ -175,25 +174,20 @@ class ComputeSignedDistances(torch.autograd.Function):
                     kernel=get_cube_contact_points_and_sdf_vals,
                     dim=rigid_contact_count,
                     inputs=[
-                        # rigid_contact_shape0,
-                        # rigid_contact_shape1,
                         ctx.model.rigid_contact_shape0,
                         ctx.model.rigid_contact_shape1,
                         ctx.model.shape_body,
                         ctx.model.cube_idxs,
-                        # rigid_contact_point0,
-                        # rigid_contact_point1,
                         ctx.model.rigid_contact_point0,
                         ctx.model.rigid_contact_point1,
                         ctx.state.body_q,
-                        # rigid_contact_normal,
                         ctx.model.rigid_contact_normal,
                         ctx.model.num_envs,
                     ],
                     outputs=[batch_idxs, contact_points_cube, contact_points_other, ctx.sdf_vals],
                 )
 
-            return wp.to_torch(ctx.sdf_vals)
+            return wp.to_torch(ctx.sdf_vals).reshape(*ctx.q_batched_shape[:-1], -1)
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor) -> tuple[torch.Tensor, None]:
@@ -203,83 +197,27 @@ class ComputeSignedDistances(torch.autograd.Function):
             ctx: The context.
             grad_output: The gradient of the loss.
         """
-        # print(f"grad_output: {grad_output}")
-        # wp.synchronize_device()
         ctx.tape.zero()
-        ctx.sdf_vals.grad = wp.from_torch(grad_output, dtype=wp.float32).contiguous()
+        ctx.sdf_vals.grad = wp.from_torch(grad_output.reshape(-1), dtype=wp.float32).contiguous()
         ctx.tape.backward()
-        # ctx.tape.backward(grads={ctx.sdf_vals: wp.from_torch(grad_output, dtype=wp.float32).contiguous()})
-        # wp.synchronize_device()
         return wp.to_torch(ctx.tape.gradients[ctx.q]).reshape(ctx.q_batched_shape), None
 
 
 
-def loss_function(qrobot_batch: torch.Tensor, qcube_batch: torch.Tensor, model: wp.sim.Model) -> torch.Tensor:
+def collision_loss_function(qrobot_batch: torch.Tensor, qcube_log_batch: torch.Tensor, warp_model: wp.sim.Model) -> torch.Tensor:
     """The loss function to minimize.
 
     Args:
-        qrobot_batch: The batched joint states of the robot. Shape=(batch_size, 1).
+        qrobot_batch: The batched joint states of the robot. Shape=(batch_size, n_r).
         qcube_batch: The batched joint states of the cube. Shape=(batch_size, 7).
         model: The batched model.
 
     Returns:
         The loss over all batches. Shape=(,).
     """
+    qcube_batch = pp.se3(qcube_log_batch).Exp()
     compute_signed_distances = ComputeSignedDistances.apply
     q0_batch = torch.cat([qrobot_batch, qcube_batch], dim=-1)  # (batch_size, 8)
-    sdf_vals = compute_signed_distances(q0_batch, model)
+    sdf_vals = compute_signed_distances(q0_batch, warp_model)
     relu_vals = torch.relu(-sdf_vals)  # 0 loss if signed distance is positive
-    return torch.sum(relu_vals)  # sum over all batches
-
-
-if __name__ == "__main__":
-    # [DEBUG] pypose stuff
-    ###########################################################
-    # import pypose as pp
-    # from torch.optim import Adam
-    # asdf = pp.randn_SE3(requires_grad=True)
-    # rand_target = pp.randn_SE3()
-    # optimizer = Adam([asdf], lr=1e-3)
-
-    # losses = []
-    # for _ in range(100):
-    #     loss = torch.sum((asdf @ rand_target.Inv()).Log() ** 2)
-    #     optimizer.zero_grad()
-    #     loss.backward()
-    #     optimizer.step()
-    #     losses.append(loss.item())
-    #     print(f"loss: {loss}")
-    ###########################################################
-
-    import pypose as pp
-    import warp.sim.render
-    from torch.optim import SGD
-
-    # setup: copied from 1_two_link_collider.py
-    cube_size = 0.035
-    batch_size = 1
-    path = f"{ROOT}/scripts/warp/dummy_with_mesh.urdf"
-    model = get_model(path, cube_size=0.035, batch_size=batch_size)
-
-    # making robot and cube states - proof of concept for loss decrease with pypose
-    qr_batch = torch.tensor([0.0], device="cuda")
-
-    # Create a "vanilla" PyTorch parameter for the log of cube pose.
-    # Note complicated init. is just to create a meaningful starting point.
-    qc_log_batch = torch.nn.Parameter(
-        pp.SE3(torch.tensor(
-            [0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
-            device="cuda",
-            dtype=torch.float32,
-            requires_grad=True,
-        )).Log().tensor(),
-    )
-    optimizer = SGD([qc_log_batch], lr=1e-1)
-
-    # computing the loss and its gradient
-    for _ in range(10):
-        loss = loss_function(qr_batch, qc_log_batch, model)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        print(loss.item(), qc_log_batch)
+    return torch.mean(relu_vals, dim=-1)  # mean over all collision pairs
