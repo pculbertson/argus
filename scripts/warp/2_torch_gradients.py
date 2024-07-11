@@ -111,7 +111,7 @@ def get_cube_contact_points_and_sdf_vals(
     for env_idx in range(batch_size):
         cube_idx = cube_idxs[env_idx * batch_size]
         if body_idx_0 == cube_idx or body_idx_1 == cube_idx:
-            batch_idxs[contact_id] = env_idx
+            # batch_idxs[contact_id] = env_idx
             break
 
     if is_cube_body0:
@@ -151,52 +151,49 @@ class ComputeSignedDistances(torch.autograd.Function):
         ctx.model = model
 
         # setup for forward pass
-        state = model.state()
-        _qd = wp.zeros(model.joint_dof_count, device="cuda", requires_grad=False)  # dummy val
+        ctx.state = ctx.model.state()
+        _qd = wp.zeros(ctx.model.joint_dof_count, device="cuda", requires_grad=False)  # dummy values
+
+        # setting up the outputs
+        ctx.sdf_vals = wp.zeros(ctx.model.rigid_contact_max, dtype=wp.float32, device="cuda", requires_grad=True)
 
         # forward pass
         with ctx.tape:
-            wp.sim.eval_fk(model, q, _qd, None, state)  # update model state with q
-            wp.sim.collide(model, state)  # compute collisions
+            wp.sim.eval_fk(ctx.model, ctx.q, _qd, None, ctx.state)  # update model state with q
+            wp.sim.collide(ctx.model, ctx.state)  # compute collisions
 
             # allocating inputs
-            rigid_contact_count = model.rigid_contact_count.numpy()[0].item()  # total number of contacts
-            if rigid_contact_count == 0:
-                sdf_vals = wp.zeros(1, dtype=wp.float32, device="cuda", requires_grad=True)
-                ctx.sdf_vals = sdf_vals
-                return wp.to_torch(ctx.sdf_vals)
-            rigid_contact_shape0 = model.rigid_contact_shape0[:rigid_contact_count]
-            rigid_contact_shape1 = model.rigid_contact_shape1[:rigid_contact_count]
-            rigid_contact_point0 = model.rigid_contact_point0[:rigid_contact_count]
-            rigid_contact_point1 = model.rigid_contact_point1[:rigid_contact_count]
-            rigid_contact_normal = model.rigid_contact_normal[:rigid_contact_count]
+            rigid_contact_count = ctx.model.rigid_contact_count.numpy()[0].item()  # total number of contacts
+            if rigid_contact_count > 0:
 
-            # allocating outputs
-            batch_idxs = wp.from_numpy(-np.ones(model.rigid_contact_max), dtype=int, device="cuda")  # outputs
-            contact_points_cube = wp.zeros(model.rigid_contact_max, dtype=wp.vec3, device="cuda")  # outputs
-            contact_points_other = wp.zeros(model.rigid_contact_max, dtype=wp.vec3, device="cuda")
-            sdf_vals = wp.zeros(model.rigid_contact_max, dtype=wp.float32, device="cuda")
+                # allocating outputs (unused here but needed for kernel)
+                batch_idxs = wp.from_numpy(-np.ones(ctx.model.rigid_contact_max), dtype=int, device="cuda")  # outputs
+                contact_points_cube = wp.zeros(ctx.model.rigid_contact_max, dtype=wp.vec3, device="cuda")  # outputs
+                contact_points_other = wp.zeros(ctx.model.rigid_contact_max, dtype=wp.vec3, device="cuda")
 
-            wp.launch(
-                kernel=get_cube_contact_points_and_sdf_vals,
-                dim=rigid_contact_count,
-                inputs=[
-                    rigid_contact_shape0,
-                    rigid_contact_shape1,
-                    model.shape_body,
-                    model.cube_idxs,
-                    rigid_contact_point0,
-                    rigid_contact_point1,
-                    state.body_q,
-                    rigid_contact_normal,
-                    model.num_envs,
-                ],
-                outputs=[batch_idxs, contact_points_cube, contact_points_other, sdf_vals],
-            )
+                wp.launch(
+                    kernel=get_cube_contact_points_and_sdf_vals,
+                    dim=rigid_contact_count,
+                    inputs=[
+                        # rigid_contact_shape0,
+                        # rigid_contact_shape1,
+                        ctx.model.rigid_contact_shape0,
+                        ctx.model.rigid_contact_shape1,
+                        ctx.model.shape_body,
+                        ctx.model.cube_idxs,
+                        # rigid_contact_point0,
+                        # rigid_contact_point1,
+                        ctx.model.rigid_contact_point0,
+                        ctx.model.rigid_contact_point1,
+                        ctx.state.body_q,
+                        # rigid_contact_normal,
+                        ctx.model.rigid_contact_normal,
+                        ctx.model.num_envs,
+                    ],
+                    outputs=[batch_idxs, contact_points_cube, contact_points_other, ctx.sdf_vals],
+                )
 
-        ctx.sdf_vals = sdf_vals
-        wp.synchronize_device()
-        return wp.to_torch(ctx.sdf_vals)
+            return wp.to_torch(ctx.sdf_vals)
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor) -> tuple[torch.Tensor, None]:
@@ -206,11 +203,15 @@ class ComputeSignedDistances(torch.autograd.Function):
             ctx: The context.
             grad_output: The gradient of the loss.
         """
-        wp.synchronize_device()
+        # print(f"grad_output: {grad_output}")
+        # wp.synchronize_device()
+        ctx.tape.zero()
         ctx.sdf_vals.grad = wp.from_torch(grad_output, dtype=wp.float32).contiguous()
         ctx.tape.backward()
-        wp.synchronize_device()
+        # ctx.tape.backward(grads={ctx.sdf_vals: wp.from_torch(grad_output, dtype=wp.float32).contiguous()})
+        # wp.synchronize_device()
         return wp.to_torch(ctx.tape.gradients[ctx.q]).reshape(ctx.q_batched_shape), None
+
 
 
 def loss_function(qrobot_batch: torch.Tensor, qcube_batch: torch.Tensor, model: wp.sim.Model) -> torch.Tensor:
@@ -252,7 +253,7 @@ if __name__ == "__main__":
 
     import pypose as pp
     import warp.sim.render
-    from torch.optim import Adam
+    from torch.optim import SGD
 
     # setup: copied from 1_two_link_collider.py
     cube_size = 0.035
@@ -262,22 +263,24 @@ if __name__ == "__main__":
 
     # making robot and cube states - proof of concept for loss decrease with pypose
     qr_batch = torch.tensor([0.0], device="cuda")
-    qc_batch = pp.Parameter(
-        pp.SE3(
-            torch.tensor(
-                [0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
-                device="cuda",
-                dtype=torch.float32,
-                requires_grad=True,
-            ),
-        )
+
+    # Create a "vanilla" PyTorch parameter for the log of cube pose.
+    # Note complicated init. is just to create a meaningful starting point.
+    qc_log_batch = torch.nn.Parameter(
+        pp.SE3(torch.tensor(
+            [0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+            device="cuda",
+            dtype=torch.float32,
+            requires_grad=True,
+        )).Log().tensor(),
     )
-    optimizer = Adam([qc_batch], lr=1e-1)
+    optimizer = SGD([qc_log_batch], lr=1e-1)
 
     # computing the loss and its gradient
     for _ in range(10):
+        qc_batch = pp.se3(qc_log_batch).Exp()
         loss = loss_function(qr_batch, qc_batch, model)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        print(loss.item())
+        print(loss.item(), qc_batch)
