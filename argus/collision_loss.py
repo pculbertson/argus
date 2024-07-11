@@ -169,9 +169,6 @@ class ComputeSignedDistances(torch.autograd.Function):
         ctx.state = ctx.model.state()
         _qd = wp.zeros(ctx.model.joint_dof_count, device="cuda", requires_grad=False)  # dummy values
 
-        # setting up the outputs
-        ctx.sdf_vals = wp.zeros(ctx.model.rigid_contact_max, dtype=wp.float32, device="cuda", requires_grad=True)
-
         # forward pass
         with ctx.tape:
             wp.sim.eval_fk(ctx.model, ctx.q, _qd, None, ctx.state)  # update model state with q
@@ -182,9 +179,11 @@ class ComputeSignedDistances(torch.autograd.Function):
             if rigid_contact_count > 0:
 
                 # allocating outputs (unused here but needed for kernel)
-                batch_idxs = wp.from_numpy(-np.ones(ctx.model.rigid_contact_max), dtype=int, device="cuda")  # outputs
-                contact_points_cube = wp.zeros(ctx.model.rigid_contact_max, dtype=wp.vec3, device="cuda")  # outputs
-                contact_points_other = wp.zeros(ctx.model.rigid_contact_max, dtype=wp.vec3, device="cuda")
+                batch_idxs = wp.from_numpy(-np.ones(rigid_contact_count), dtype=int, device="cuda")  # outputs
+                contact_points_cube = wp.zeros(rigid_contact_count, dtype=wp.vec3, device="cuda")  # outputs
+                contact_points_other = wp.zeros(rigid_contact_count, dtype=wp.vec3, device="cuda")
+                # setting up the outputs
+                ctx.sdf_vals = wp.zeros(rigid_contact_count, dtype=wp.float32, device="cuda", requires_grad=True)
 
                 wp.launch(
                     kernel=get_cube_contact_points_and_sdf_vals,
@@ -202,6 +201,8 @@ class ComputeSignedDistances(torch.autograd.Function):
                     ],
                     outputs=[batch_idxs, contact_points_cube, contact_points_other, ctx.sdf_vals],
                 )
+            else:
+                ctx.sdf_vals = wp.zeros(1, dtype=wp.float32, device="cuda", requires_grad=True)
 
             # ensure Warp operations complete before returning data to Torch
             wp.synchronize_device()
@@ -247,7 +248,7 @@ def collision_loss_function(qrobot_batch: torch.Tensor, qcube_log_batch: torch.T
     q0_batch = torch.cat([qrobot_batch, qcube_batch], dim=-1)  # (batch_size, 8)
     sdf_vals = compute_signed_distances(q0_batch, warp_model)
     relu_vals = torch.relu(-sdf_vals)  # 0 loss if signed distance is positive
-    return torch.sum(relu_vals)  # mean over all collision pairs
+    return torch.mean(relu_vals)
 
 if __name__ == "__main__":
     # [DEBUG] pypose stuff
@@ -281,23 +282,27 @@ if __name__ == "__main__":
     # making robot and cube states - proof of concept for loss decrease with pypose
     qr_batch = torch.tensor([0.0], device="cuda").repeat(batch_size, 1) 
 
-    # Create a "vanilla" PyTorch parameter for the log of cube pose.
-    # Note complicated init. is just to create a meaningful starting point.
-    qc_log_batch = torch.nn.Parameter(
-        pp.SE3(torch.tensor(
-            [0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
-            device="cuda",
-            dtype=torch.float32,
-            requires_grad=True,
-        )).Log().tensor().repeat(batch_size, 1),
-        requires_grad=True,
-    )
-    optimizer = SGD([qc_log_batch], lr=1e-1)
+    # Create a "vanilla" small, MLP that outputs the cube pose (i.e., a six vector).
+    nn = torch.nn.Sequential(
+        torch.nn.Linear(1, 32),
+        torch.nn.ReLU(),
+        torch.nn.Linear(32, 32),
+        torch.nn.ReLU(),
+        torch.nn.Linear(32, 6),
+    ).to("cuda")
+
+    inputs = torch.tensor([0.0], device="cuda").repeat(batch_size, 1)
+    default_log_pose = torch.tensor([0.5, 0., 0., 0., 0., 0.], device="cuda").repeat(batch_size, 1)
+
+
+    optimizer = SGD(nn.parameters(), lr=1e-2)
 
     # computing the loss and its gradient
-    for _ in range(10):
+    for _ in range(1000):
+        qc_log_batch = 1e-1 * nn(inputs) + default_log_pose
         loss = collision_loss_function(qr_batch, qc_log_batch, model)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        print(loss.item(), qc_log_batch.grad.norm())
+        print(loss.item())
+        # print(loss.item(), [param.grad for param in nn.parameters()])

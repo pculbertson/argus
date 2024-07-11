@@ -68,7 +68,7 @@ class TrainConfig:
     max_grad_norm: float = 1.0
     num_gpus: int = torch.cuda.device_count()
     random_seed: int = 42
-    collision_weight: float = 1.0
+    collision_weight: float = 1e-1
 
     # Warp parameters
     cube_size = 0.035
@@ -238,9 +238,6 @@ def initialize_training(
     scheduler = ReduceLROnPlateau(optimizer, "min", patience=5, factor=0.5)
     scaler = torch.cuda.amp.GradScaler(enabled=cfg.amp)
 
-    # loss function
-    loss_fn = geometric_loss_fn
-
     # wandb
     wandb_id = generate_id()
     if cfg.wandb_log and rank == 0:
@@ -249,9 +246,8 @@ def initialize_training(
     warp_model = get_warp_model(cfg.leap_urdf_path, cube_size=cfg.cube_size, batch_size=cfg.batch_size)
     
     def loss_fn(cube_pred_se3: torch.Tensor, cube_target: pp.SE3, q_leap: torch.Tensor) -> torch.Tensor:
-        geom_loss = geometric_loss_fn(cube_pred_se3, cube_target)
+        geom_loss = geometric_loss_fn(cube_pred_se3, cube_target).mean()
         collision_loss = collision_loss_function(q_leap, cube_pred_se3, warp_model)
-        assert geom_loss.shape == collision_loss.shape, f"Shapes: {geom_loss.shape} /= {collision_loss.shape}"
         return geom_loss + cfg.collision_weight * collision_loss
 
     return (
@@ -319,9 +315,7 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
                 # forward pass
                 cube_pose_pred_se3 = model(images)  # therefore, the predicted quats are (x, y, z, w)
 
-            losses = loss_fn(cube_pose_pred_se3.to(torch.float32), cube_pose_SE3, q_leap)
-            assert len(losses.shape) == 1, f"Losses shape: {losses.shape}"
-            loss = torch.mean(losses)
+            loss = loss_fn(cube_pose_pred_se3.to(torch.float32), cube_pose_SE3, q_leap)
 
             if cfg.wandb_log and (not cfg.multigpu or rank == 0):
                 wandb.log({"loss": loss.item()})
@@ -333,7 +327,7 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
             torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.max_grad_norm)
             scaler.step(optimizer)
             scaler.update()
-            avg_loss_in_epoch.append(losses)
+            avg_loss_in_epoch.append(loss.detach().unsqueeze(0))
 
         if epoch % cfg.print_epochs == 0:
             rank_print(f"    Avg. Loss in Epoch: {torch.mean(torch.cat(avg_loss_in_epoch)).item()}", rank=rank)
@@ -353,7 +347,7 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
                         cube_pose_pred_se3 = model(images)
 
                     losses = loss_fn(cube_pose_pred_se3.to(torch.float32), cube_pose_SE3, q_leap)
-                    val_loss.append(losses)
+                    val_loss.append(losses.unsqueeze(0))
 
                 val_loss = torch.mean(torch.cat(val_loss)).item()
                 if cfg.wandb_log and (not cfg.multigpu or rank == 0):
