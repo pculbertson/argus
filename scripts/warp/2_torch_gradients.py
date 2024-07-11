@@ -214,7 +214,7 @@ class ComputeSignedDistances(torch.autograd.Function):
 
 
 
-def loss_function(qrobot_batch: torch.Tensor, qcube_batch: torch.Tensor, model: wp.sim.Model) -> torch.Tensor:
+def loss_function(qrobot_batch: torch.Tensor, qcube_log_batch: torch.Tensor, model: wp.sim.Model) -> torch.Tensor:
     """The loss function to minimize.
 
     Args:
@@ -225,9 +225,11 @@ def loss_function(qrobot_batch: torch.Tensor, qcube_batch: torch.Tensor, model: 
     Returns:
         The loss over all batches. Shape=(,).
     """
+    qcube_batch = pp.se3(qcube_log_batch).Exp()
     compute_signed_distances = ComputeSignedDistances.apply
     q0_batch = torch.cat([qrobot_batch, qcube_batch], dim=-1)  # (batch_size, 8)
     sdf_vals = compute_signed_distances(q0_batch, model)
+    breakpoint()
     relu_vals = torch.relu(-sdf_vals)  # 0 loss if signed distance is positive
     return torch.sum(relu_vals)  # sum over all batches
 
@@ -257,12 +259,12 @@ if __name__ == "__main__":
 
     # setup: copied from 1_two_link_collider.py
     cube_size = 0.035
-    batch_size = 1
+    batch_size = 10
     path = f"{ROOT}/scripts/warp/dummy_with_mesh.urdf"
     model = get_model(path, cube_size=0.035, batch_size=batch_size)
 
     # making robot and cube states - proof of concept for loss decrease with pypose
-    qr_batch = torch.tensor([0.0], device="cuda")
+    qr_batch = torch.tensor([0.0], device="cuda").repeat(batch_size, 1)
 
     # Create a "vanilla" PyTorch parameter for the log of cube pose.
     # Note complicated init. is just to create a meaningful starting point.
@@ -272,7 +274,7 @@ if __name__ == "__main__":
             device="cuda",
             dtype=torch.float32,
             requires_grad=True,
-        )).Log().tensor(),
+        ).repeat(batch_size, 1)).Log().tensor(),
     )
     optimizer = SGD([qc_log_batch], lr=1e-1)
 

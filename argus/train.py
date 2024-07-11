@@ -68,7 +68,7 @@ class TrainConfig:
     max_grad_norm: float = 1.0
     num_gpus: int = torch.cuda.device_count()
     random_seed: int = 42
-    collision_weight: float = 1e-3
+    collision_weight: float = 1.0
 
     # Warp parameters
     cube_size = 0.035
@@ -319,9 +319,8 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
                 # forward pass
                 cube_pose_pred_se3 = model(images)  # therefore, the predicted quats are (x, y, z, w)
 
-            breakpoint()
             losses = loss_fn(cube_pose_pred_se3.to(torch.float32), cube_pose_SE3, q_leap)
-            assert losses.shape == (cfg.batch_size,), f"Losses shape: {losses.shape} /= (B,)"
+            assert len(losses.shape) == 1, f"Losses shape: {losses.shape}"
             loss = torch.mean(losses)
 
             if cfg.wandb_log and (not cfg.multigpu or rank == 0):

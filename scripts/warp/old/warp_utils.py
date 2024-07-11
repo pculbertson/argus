@@ -5,7 +5,6 @@ import numpy as np
 import torch
 import warp as wp
 import warp.sim
-from warp.sim.collide import box_sdf, box_sdf_grad
 
 from argus import ROOT
 
