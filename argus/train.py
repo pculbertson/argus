@@ -277,10 +277,6 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
         scaler,
     ) = initialize_training(cfg, rank=rank)
 
-    # normalization transform
-    # see: https://pytorch.org/hub/pytorch_vision_resnet/
-    normalization_func = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-
     # local device
     if cfg.multigpu:
         rank_print("Progress bar only shown for rank 0.", rank=rank)
@@ -304,12 +300,6 @@ def train(cfg: TrainConfig, rank: int = 0) -> None:
             ):
                 # loading data
                 images = example["images"].to(device)  # (B, 6, H, W)
-                images_shape = images.shape
-                images = normalization_func(
-                    images.reshape(-1, 2, 3, cfg.dataset_config.H, cfg.dataset_config.W)
-                ).reshape(
-                    images_shape
-                )  # (B, 6, H, W)
                 cube_pose_SE3 = pp.SE3(example["cube_pose"].to(device))  # quats are (x, y, z, w)
 
                 # forward pass

@@ -37,6 +37,9 @@ class AugmentationConfig:
     plasma_shadow: bool = True
     salt_and_pepper: bool = False
 
+    # normalization
+    normalize: bool = True
+
 
 class Augmentation(torch.nn.Module):
     """Data augmentation module for the images and pixel coordinates."""
@@ -93,6 +96,9 @@ class Augmentation(torch.nn.Module):
 
         if cfg.salt_and_pepper:
             self.transforms.append(kornia.augmentation.RandomSaltAndPepperNoise(p=0.7))
+
+        if cfg.normalize:
+            self.transforms.append(kornia.augmentation.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
 
         self.transform_op = kornia.augmentation.AugmentationSequential(*self.transforms, data_keys=["image"])
 
