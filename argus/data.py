@@ -210,7 +210,7 @@ class CameraCubePoseDataset(Dataset):
         img_b = Image.open(f"{self.dataset_path}/{img_stem}_b.png")  # (H, W, 3)
 
         # Draw random arcs if self.augmentation.spaghetti is True
-        if self.cfg_aug.num_spaghetti > 0:
+        if self.cfg_aug is not None and self.cfg_aug.num_spaghetti > 0:
             img_a = draw_spaghetti(img_a, self.cfg_aug.num_spaghetti)
             img_b = draw_spaghetti(img_b, self.cfg_aug.num_spaghetti)
 
@@ -234,7 +234,7 @@ if __name__ == "__main__":
     import cv2
     import tyro
 
-    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data_large")
+    dataset_cfg = CameraCubePoseDatasetConfig(dataset_path=ROOT + "/outputs/data/cube_unity_data_small")
     augmentation_cfg = tyro.cli(AugmentationConfig)
     train_dataset = CameraCubePoseDataset(dataset_cfg, cfg_aug=augmentation_cfg, train=True)
 
