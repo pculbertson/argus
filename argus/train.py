@@ -24,6 +24,7 @@ from argus.data import Augmentation, AugmentationConfig, CameraCubePoseDataset, 
 from argus.models import NCameraCNN, NCameraCNNConfig
 
 torch.set_float32_matmul_precision("high")
+wandb.require("core")
 
 
 @dataclass(frozen=True)
